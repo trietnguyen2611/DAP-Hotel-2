@@ -1,0 +1,47 @@
+# Operating System files
+.DS_Store
+Thumbs.db
+*.Spotlight-V100
+*.Trashes
+
+# Node / Desktop dependencies & builds
+node_modules/
+desktop/node_modules/
+dist/
+build/
+.electron/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# LaTeX build artifacts (keeping .tex, .bib, .pdf, .cls, .bst)
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.bbl
+*.blg
+
+# IDE / Editor configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment & secrets
+.env
+.env.*
