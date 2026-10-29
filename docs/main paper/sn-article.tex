@@ -118,19 +118,6 @@ Mặc dù ABSA mang lại nhiều tiềm năng ứng dụng, việc xây dựng 
 
 \textbf{Thứ ba, duy trì ngữ cảnh đàm thoại đa lượt (Conversational Context Continuity):} Trong các phiên hội thoại thực tế, người dùng thường đặt các câu hỏi ngắn nối tiếp nhau hoặc sử dụng đại từ thay thế (đồng tham chiếu). Nếu không duy trì được trạng thái ngữ cảnh, hệ thống sẽ dễ đưa ra câu trả lời sai lệch hoặc lạc đề.
 
-\subsection{Khung Kiến trúc Đề xuất: CRAM-ABSA}
-\label{subsec:proposed_framework}
-Nhằm khắc phục triệt để các hạn chế về xung đột cảm xúc đa khía cạnh, suy diễn sai lệch do dữ liệu phân bố lệch và hiện tượng lẫn bằng chứng, chúng tôi đề xuất khung kiến trúc học đồng thời \textbf{CRAM-ABSA} (\textit{Cross-Aspect Rationale Alignment Model for Aspect-Based Sentiment Analysis}) trên nền tảng BERT Seq2Seq. Mô hình được xây dựng như một hệ thống liên kết thống nhất gồm bốn khối chức năng chính:
-
-\begin{enumerate}
-    \item \textbf{Khối mã hóa ngữ cảnh và dung hợp siêu dữ liệu (Context \& Metadata Fusion Encoder):} Sử dụng mô hình Transformer tiền huấn luyện BERT kết hợp mạng chiếu phi tuyến (Dense Projection) để tích hợp các đặc trưng định lượng và siêu dữ liệu (trọng số thời gian, xếp hạng sao) vào không gian ngữ nghĩa ẩn, nâng cao năng lực định vị ngữ cảnh~\cite{bruni2025amaqa}.
-    
-    \item \textbf{Module sinh bằng chứng định hướng khía cạnh (Aspect Rationale Generator):} Ước lượng mặt nạ mềm nhằm xác định chính xác các đoạn căn cứ (rationale) cho từng khía cạnh. Mô hình áp dụng hàm mất mát phạt chồng lấn phân đoạn nhằm loại bỏ hiện tượng rò rỉ căn cứ liên khía cạnh, bảo đảm các vùng bằng chứng giữa các khía cạnh độc lập và không bị lấn chiếm.
-    
-    \item \textbf{Đầu hồi quy thứ bậc và phân loại cảm xúc (Ordinal Rating \& Sentiment Heads):} Dự đoán trực tiếp mức độ hài lòng trên thang điểm 5 sao thông qua hồi quy thứ bậc CORN (Conditional Ordinal Regression) kết hợp tái cân bằng trọng số lớp, phản ánh đúng khoảng cách giữa các bậc sao và giải quyết bài toán mất cân bằng dữ liệu cực đoan.
-    
-    \item \textbf{Bộ giải mã đàm thoại sinh ngôn ngữ tự nhiên (Generative Decoder):} Tiếp nhận biểu diễn ngữ cảnh đã được tăng cường trọng số từ bằng chứng khía cạnh để sinh câu trả lời tự nhiên, chính xác và minh bạch căn cứ cho người dùng.
-\end{enumerate}
 
 \subsection{Câu hỏi Nghiên cứu (Research Questions)}
 \label{subsec:research_questions}
