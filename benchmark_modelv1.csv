@@ -1,0 +1,2 @@
+﻿Model,Split,Samples,Loss,Acc@0 (%),6-Aspect Macro-F1 (%),Macro-MAE,Rationale F1 (%),Leakage (%),Elapsed
+modelv1.pt,TEST,999,0.2976,75.48,83.32,0.5033,73.35,8.34,461.2s
