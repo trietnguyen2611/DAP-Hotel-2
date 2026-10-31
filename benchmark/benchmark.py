@@ -576,17 +576,15 @@ if TORCH_AVAILABLE:
                 return_tensors="pt"
             ).to(device)
 
-            enc_out = self.gen_model.encoder(
-                input_ids=p_enc["input_ids"],
-                attention_mask=p_enc["attention_mask"]
-            )
-            soft_p = outputs["soft_prompts"][0:1, aspect_idx, :, :]
-            combined_hidden = torch.cat([0.20 * soft_p, enc_out.last_hidden_state], dim=1)
+            tok_embeds = self.gen_model.get_input_embeddings()(p_enc["input_ids"]).float()
+            soft_p = outputs["soft_prompts"][0:1, aspect_idx, :, :].float()
+            combined_embeds = torch.cat([0.20 * soft_p, tok_embeds], dim=1)
             prompt_mask = torch.ones((1, soft_p.size(1)), dtype=p_enc["attention_mask"].dtype, device=device)
             combined_mask = torch.cat([prompt_mask, p_enc["attention_mask"]], dim=1)
+            enc_out = self.gen_model.encoder(inputs_embeds=combined_embeds, attention_mask=combined_mask)
 
             gen_ids = self.gen_model.generate(
-                encoder_outputs=BaseModelOutput(last_hidden_state=combined_hidden),
+                encoder_outputs=enc_out,
                 attention_mask=combined_mask,
                 max_new_tokens=self.max_comment_len,
                 min_length=8,
@@ -684,14 +682,15 @@ if TORCH_AVAILABLE:
                 f"({sentiment_label}, {star_val}/5 stars) into a short third-person analytical comment: {focused_evidence}"
             )
             p_enc = seq2seq_tokenizer(prompt_str, max_length=192, truncation=True, return_tensors="pt").to(device)
-            enc_out = self.gen_model.encoder(input_ids=p_enc["input_ids"], attention_mask=p_enc["attention_mask"])
-            soft_p = outputs["soft_prompts"][0:1, aspect_idx, :, :]
-            combined_hidden = torch.cat([0.20 * soft_p, enc_out.last_hidden_state], dim=1)
+            tok_embeds = self.gen_model.get_input_embeddings()(p_enc["input_ids"]).float()
+            soft_p = outputs["soft_prompts"][0:1, aspect_idx, :, :].float()
+            combined_embeds = torch.cat([0.20 * soft_p, tok_embeds], dim=1)
             prompt_mask = torch.ones((1, soft_p.size(1)), dtype=p_enc["attention_mask"].dtype, device=device)
             combined_mask = torch.cat([prompt_mask, p_enc["attention_mask"]], dim=1)
+            enc_out = self.gen_model.encoder(inputs_embeds=combined_embeds, attention_mask=combined_mask)
 
             gen_ids = self.gen_model.generate(
-                encoder_outputs=BaseModelOutput(last_hidden_state=combined_hidden),
+                encoder_outputs=enc_out,
                 attention_mask=combined_mask,
                 max_new_tokens=self.max_comment_len,
                 min_length=8,
@@ -758,14 +757,15 @@ if TORCH_AVAILABLE:
                 f"({sentiment_label}, {star_val}/5 stars) into a short third-person analytical comment: {focused_evidence}"
             )
             p_enc = seq2seq_tokenizer(prompt_str, max_length=192, truncation=True, return_tensors="pt").to(device)
-            enc_out = self.gen_model.encoder(input_ids=p_enc["input_ids"], attention_mask=p_enc["attention_mask"])
-            soft_p = soft_prompts[0:1, aspect_idx, :, :]
-            combined_hidden = torch.cat([0.20 * soft_p, enc_out.last_hidden_state], dim=1)
+            tok_embeds = self.gen_model.get_input_embeddings()(p_enc["input_ids"]).float()
+            soft_p = soft_prompts[0:1, aspect_idx, :, :].float()
+            combined_embeds = torch.cat([0.20 * soft_p, tok_embeds], dim=1)
             prompt_mask = torch.ones((1, soft_p.size(1)), dtype=p_enc["attention_mask"].dtype, device=device)
             combined_mask = torch.cat([prompt_mask, p_enc["attention_mask"]], dim=1)
+            enc_out = self.gen_model.encoder(inputs_embeds=combined_embeds, attention_mask=combined_mask)
 
             gen_ids = self.gen_model.generate(
-                encoder_outputs=BaseModelOutput(last_hidden_state=combined_hidden),
+                encoder_outputs=enc_out,
                 attention_mask=combined_mask,
                 max_new_tokens=self.max_comment_len,
                 min_length=8,
@@ -881,14 +881,15 @@ if TORCH_AVAILABLE:
                 f"({sentiment_label}, {star_val}/5 stars) into a short third-person analytical comment: {focused_evidence}"
             )
             p_enc = seq2seq_tokenizer(prompt_str, max_length=192, truncation=True, return_tensors="pt").to(device)
-            enc_out = self.gen_model.encoder(input_ids=p_enc["input_ids"], attention_mask=p_enc["attention_mask"])
-            soft_p = outputs["soft_prompts"][0:1, aspect_idx, :, :]
-            combined_hidden = torch.cat([0.20 * soft_p, enc_out.last_hidden_state], dim=1)
+            tok_embeds = self.gen_model.get_input_embeddings()(p_enc["input_ids"]).float()
+            soft_p = outputs["soft_prompts"][0:1, aspect_idx, :, :].float()
+            combined_embeds = torch.cat([0.20 * soft_p, tok_embeds], dim=1)
             prompt_mask = torch.ones((1, soft_p.size(1)), dtype=p_enc["attention_mask"].dtype, device=device)
             combined_mask = torch.cat([prompt_mask, p_enc["attention_mask"]], dim=1)
+            enc_out = self.gen_model.encoder(inputs_embeds=combined_embeds, attention_mask=combined_mask)
 
             gen_ids = self.gen_model.generate(
-                encoder_outputs=BaseModelOutput(last_hidden_state=combined_hidden),
+                encoder_outputs=enc_out,
                 attention_mask=combined_mask,
                 max_new_tokens=self.max_comment_len,
                 min_length=8,
