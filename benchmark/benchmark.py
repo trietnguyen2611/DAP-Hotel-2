@@ -16,7 +16,6 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs
 from typing import List, Dict, Optional, Any
-from collections import Counter, defaultdict
 
 import numpy as np
 
@@ -26,8 +25,8 @@ try:
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
-    from transformers import AutoTokenizer, AutoModel
-    from sklearn.metrics import f1_score
+    from transformers import AutoTokenizer, AutoModel, AutoModelForSeq2SeqLM
+    from transformers.modeling_outputs import BaseModelOutput
     TORCH_AVAILABLE = True
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 except ImportError:
@@ -36,7 +35,6 @@ except ImportError:
 
 CANONICAL_ASPECTS = ["Service", "Facility", "Experience", "Amenity", "Loyalty", "Branding"]
 ID_TO_SENTIMENT = {0: "Not Mentioned", 1: "Negative", 2: "Neutral", 3: "Positive"}
-SENTIMENT_TO_ID = {"Negative": 1, "Neutral": 2, "Positive": 3}
 
 CONTRACTIONS_MAP = {
     "can't": "cannot", "won't": "will not", "don't": "do not", "doesn't": "does not",
@@ -88,13 +86,47 @@ INTENSIFIERS = {
     "quite", "pretty", "so", "too", "exceptionally", "incredibly", "amazingly", "remarkably"
 }
 
+HEDGING_MODIFIERS = {
+    "moderate", "okay", "ok", "decent", "fair", "acceptable", "average", "slightly",
+    "bit", "ordinary", "normal", "passable", "tolerable", "adequate", "fine", "basic"
+}
+
 ASPECT_KEYWORDS = {
-    "Service": {"staff", "service", "reception", "front", "desk", "manager", "waiter", "waitress", "concierge", "bellboy", "helpful", "friendly", "polite", "check", "checkin", "checkout", "attendant", "housekeeping", "host", "crew"},
-    "Facility": {"room", "bed", "bathroom", "shower", "toilet", "air", "ac", "conditioning", "clean", "cleanliness", "noise", "noisy", "soundproof", "view", "balcony", "floor", "elevator", "lift", "pillow", "mattress", "furniture", "decor", "water", "carpet"},
-    "Experience": {"stay", "stayed", "experience", "holiday", "vacation", "trip", "night", "overall", "atmosphere", "vibe", "relax", "relaxing", "enjoy", "enjoyed", "memorable", "time", "comfort", "comfortable", "quiet", "peaceful", "feeling"},
-    "Amenity": {"breakfast", "buffet", "pool", "swimming", "spa", "gym", "fitness", "wifi", "internet", "restaurant", "bar", "food", "drink", "coffee", "tea", "lounge", "shuttle", "parking", "massage", "rooftop"},
-    "Loyalty": {"back", "return", "again", "recommend", "recommended", "definitely", "choose", "future", "next", "visit", "repeat", "choice", "staying"},
-    "Branding": {"star", "stars", "luxury", "brand", "hotel", "resort", "standard", "reputation", "class", "five", "four", "chain", "management", "value", "price", "worth", "quality", "prestigious", "accor", "sofitel", "pullman", "novotel", "marriott", "hilton", "intercontinental", "sheraton"}
+    "Service": {
+        "staff", "service", "services", "member", "members", "reception", "receptionist",
+        "front", "desk", "manager", "waiter", "waitress", "concierge", "bellboy", "helpful",
+        "friendly", "polite", "check", "checkin", "checkout", "attendant", "housekeeping",
+        "host", "crew", "hospitality", "team", "assistance", "welcoming", "professional", "attentive"
+    },
+    "Facility": {
+        "facility", "facilities", "maintenance", "traffic", "location", "building", "property",
+        "room", "rooms", "bed", "beds", "bathroom", "shower", "toilet", "air", "ac",
+        "conditioning", "clean", "cleanliness", "noise", "noisy", "soundproof", "view",
+        "balcony", "floor", "elevator", "lift", "pillow", "mattress", "furniture", "decor",
+        "water", "carpet", "lobby", "parking", "surrounding", "area", "exterior", "interior"
+    },
+    "Experience": {
+        "stay", "stayed", "experience", "holiday", "vacation", "trip", "night", "nights",
+        "overall", "atmosphere", "vibe", "relax", "relaxing", "enjoy", "enjoyed", "memorable",
+        "comfort", "comfortable", "quiet", "peaceful", "feeling", "impression", "journey", "moment"
+    },
+    "Amenity": {
+        "kitchen", "food", "foods", "meal", "meals", "dish", "dishes", "taste", "tasty",
+        "delicious", "flavor", "dining", "breakfast", "buffet", "pool", "swimming", "spa",
+        "gym", "fitness", "wifi", "internet", "restaurant", "bar", "drink", "drinks",
+        "coffee", "tea", "lounge", "shuttle", "massage", "rooftop", "menu", "cuisine", "chef"
+    },
+    "Loyalty": {
+        "back", "return", "returned", "returning", "again", "times", "visit", "visits",
+        "visited", "revisit", "recommend", "recommended", "definitely", "choose", "future",
+        "next", "repeat", "loyal", "regular", "choice", "staying"
+    },
+    "Branding": {
+        "star", "stars", "luxury", "luxurious", "brand", "chain", "standard", "reputation",
+        "class", "five", "four", "management", "value", "price", "pricing", "worth",
+        "prestigious", "accor", "sofitel", "pullman", "novotel", "marriott", "hilton",
+        "intercontinental", "sheraton", "flagship", "resort"
+    }
 }
 
 ASPECT_ID_MAP = {asp: idx + 1 for idx, asp in enumerate(CANONICAL_ASPECTS)}
@@ -102,14 +134,6 @@ ASPECT_ID_MAP["None"] = 0
 
 MODEL_EXTENSIONS = {".pt", ".pth", ".bin", ".safetensors"}
 LOADED_MODEL_CACHE: Dict[str, Any] = {}
-
-BENCHMARK_STATE: Dict[str, Any] = {
-    "running": False,
-    "progress_pct": 0,
-    "message": "",
-    "error": None,
-    "latest_result": None
-}
 
 
 def get_model_dir() -> Path:
@@ -120,19 +144,6 @@ def get_model_dir() -> Path:
     if script_model.exists():
         return script_model
     return cwd_model
-
-
-def get_dataset_path() -> Optional[Path]:
-    candidates = [
-        Path.cwd() / "data" / "df" / "hotel_reviews.parquet",
-        Path.cwd() / "hotel_reviews.parquet",
-        Path(__file__).resolve().parent / "data" / "df" / "hotel_reviews.parquet",
-        Path(__file__).resolve().parent / "hotel_reviews.parquet",
-    ]
-    for p in candidates:
-        if p.exists():
-            return p
-    return None
 
 
 def scan_available_models() -> List[Dict[str, Any]]:
@@ -166,6 +177,7 @@ def nltk_negation_aware_preprocess(text: str):
 
 
 def extract_20_features_for_new_review(review_text: str, recency_weight: float = 1.0) -> np.ndarray:
+    from collections import Counter, defaultdict
     raw_text = unicodedata.normalize("NFC", str(review_text).strip())
     char_len = max(len(raw_text), 1)
     raw_tokens, clean_tokens = nltk_negation_aware_preprocess(raw_text)
@@ -239,20 +251,6 @@ def extract_20_features_for_new_review(review_text: str, recency_weight: float =
         clean_token_ratio, opinion_neg_density, ebr_proto_sim
     ], dtype=np.float32)
 
-
-def parse_annotations_safe(anns: Any) -> List[Dict[str, Any]]:
-    if anns is None:
-        return []
-    if isinstance(anns, np.ndarray):
-        return anns.tolist()
-    if isinstance(anns, list):
-        return anns
-    if isinstance(anns, str):
-        try:
-            return json.loads(anns)
-        except Exception:
-            return []
-    return []
 
 
 if TORCH_AVAILABLE:
@@ -408,255 +406,591 @@ if TORCH_AVAILABLE:
             return decoded_span if len(decoded_span) >= len(decoded_gen) else decoded_gen
 
 
+    class CRAM_ABSA_v2_MultiAspectModel(nn.Module):
+        def __init__(self, backbone_name="bert-base-uncased", gen_model_name="google/flan-t5-small", hidden_dim=768, num_features=20, proj_dim=256, attn_heads=8, num_prompt_tokens=4, num_aspects=6, num_sent_classes=4, num_stars=5, max_comment_len=48):
+            super().__init__()
+            self.num_aspects = num_aspects
+            self.num_sent_classes = num_sent_classes
+            self.hidden_dim = hidden_dim
+            self.max_comment_len = max_comment_len
+            self.num_prompt_tokens = num_prompt_tokens
+
+            self.bert = AutoModel.from_pretrained(backbone_name)
+            self.gen_model = AutoModelForSeq2SeqLM.from_pretrained(gen_model_name)
+            self.gen_d_model = self.gen_model.config.d_model
+
+            self.feature_proj = nn.Sequential(
+                nn.Linear(num_features, proj_dim),
+                nn.LayerNorm(proj_dim),
+                nn.GELU(),
+                nn.Dropout(0.15),
+                nn.Linear(proj_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim)
+            )
+            self.residual_gate = nn.Parameter(torch.tensor(0.30))
+            self.ebr_aspect_prototypes = nn.Parameter(torch.randn(num_aspects, hidden_dim) * 0.02)
+            self.aspect_cross_attn = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=attn_heads, dropout=0.1, batch_first=True)
+            self.rationale_proj = nn.Linear(hidden_dim, hidden_dim)
+            self.rationale_bias = nn.Parameter(torch.zeros(num_aspects, 1))
+
+            self.aspect_classifiers = nn.ModuleList([
+                nn.Sequential(
+                    nn.Linear(hidden_dim * 2, proj_dim),
+                    nn.LayerNorm(proj_dim),
+                    nn.GELU(),
+                    nn.Dropout(0.20),
+                    nn.Linear(proj_dim, num_sent_classes)
+                )
+                for _ in range(num_aspects)
+            ])
+
+            self.aspect_star_heads = nn.ModuleList([
+                nn.Sequential(
+                    nn.Linear(hidden_dim * 2, proj_dim),
+                    nn.LayerNorm(proj_dim),
+                    nn.GELU(),
+                    nn.Dropout(0.20),
+                    nn.Linear(proj_dim, num_stars - 1)
+                )
+                for _ in range(num_aspects)
+            ])
+
+            self.corn_head = nn.Sequential(
+                nn.Linear(hidden_dim * 2, proj_dim),
+                nn.LayerNorm(proj_dim),
+                nn.GELU(),
+                nn.Dropout(0.20),
+                nn.Linear(proj_dim, num_stars - 1)
+            )
+
+            self.aspect_soft_prompt = nn.Sequential(
+                nn.Linear(hidden_dim * 2, proj_dim),
+                nn.GELU(),
+                nn.Linear(proj_dim, num_prompt_tokens * self.gen_d_model),
+                nn.LayerNorm(num_prompt_tokens * self.gen_d_model)
+            )
+
+        def forward(self, input_ids, attention_mask, dense_features):
+            bsz = input_ids.size(0)
+            bert_out = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+            seq_hidden = bert_out.last_hidden_state
+            cls_hidden = seq_hidden[:, 0, :]
+
+            feat_emb = self.feature_proj(dense_features)
+            conditioned_seq = seq_hidden + self.residual_gate * feat_emb.unsqueeze(1)
+            conditioned_cls = cls_hidden + feat_emb
+
+            queries = self.ebr_aspect_prototypes.unsqueeze(0).expand(bsz, -1, -1)
+            key_padding_mask = (attention_mask == 0)
+            cross_ctx, cross_attn_weights = self.aspect_cross_attn(
+                query=queries,
+                key=conditioned_seq,
+                value=conditioned_seq,
+                key_padding_mask=key_padding_mask,
+                need_weights=True
+            )
+
+            token_proj = self.rationale_proj(conditioned_seq)
+            proto_norm = F.normalize(self.ebr_aspect_prototypes, p=2, dim=-1)
+            token_norm = F.normalize(token_proj, p=2, dim=-1)
+            bilinear_scores = torch.einsum("bld,ad->bal", token_proj, self.ebr_aspect_prototypes) / math.sqrt(self.hidden_dim)
+            cosine_scores = torch.einsum("bld,ad->bal", token_norm, proto_norm)
+            rationale_logits = bilinear_scores + cosine_scores + torch.log(cross_attn_weights.clamp(min=1e-6)) + self.rationale_bias
+
+            pad_mask = attention_mask.unsqueeze(1).float()
+            rationale_probs = torch.sigmoid(rationale_logits) * pad_mask
+
+            denom = rationale_probs.sum(dim=-1, keepdim=True).clamp(min=1e-4)
+            masked_pooled = 0.5 * (torch.einsum("bal,bld->bad", rationale_probs, conditioned_seq) / denom) + 0.5 * cross_ctx
+
+            aspect_logits_list = []
+            aspect_star_logits_list = []
+            soft_prompts_list = []
+            for a_idx in range(self.num_aspects):
+                asp_ctx = torch.cat([masked_pooled[:, a_idx, :], feat_emb], dim=-1)
+                aspect_logits_list.append(self.aspect_classifiers[a_idx](asp_ctx))
+                aspect_star_logits_list.append(self.aspect_star_heads[a_idx](asp_ctx))
+                sp = self.aspect_soft_prompt(asp_ctx).view(bsz, self.num_prompt_tokens, self.gen_d_model)
+                soft_prompts_list.append(sp)
+
+            aspect_logits = torch.stack(aspect_logits_list, dim=1)
+            aspect_star_logits = torch.stack(aspect_star_logits_list, dim=1)
+            soft_prompts = torch.stack(soft_prompts_list, dim=1)
+
+            global_aspect_ctx = masked_pooled.mean(dim=1)
+            corn_input = torch.cat([conditioned_cls, global_aspect_ctx], dim=-1)
+            corn_logits = self.corn_head(corn_input)
+
+            return {
+                "aspect_logits": aspect_logits,
+                "aspect_star_logits": aspect_star_logits,
+                "rationale_logits": rationale_logits,
+                "rationale_probs": rationale_probs,
+                "corn_logits": corn_logits,
+                "soft_prompts": soft_prompts,
+                "aspect_embeddings": masked_pooled,
+                "seq_hidden": conditioned_seq
+            }
+
+        @torch.no_grad()
+        def generate_aspect_commentary(
+            self,
+            aspect_idx: int,
+            aspect_name: str,
+            sentiment_label: str,
+            star_val: int,
+            review_text: str,
+            outputs: Dict[str, torch.Tensor],
+            input_ids: torch.Tensor,
+            attention_mask: torch.Tensor,
+            bert_tokenizer,
+            seq2seq_tokenizer
+        ) -> str:
+            device = input_ids.device
+            rat_prob = outputs["rationale_probs"][0, aspect_idx]
+            valid_len = int(attention_mask[0].sum().item())
+            tok_ids = input_ids[0, :valid_len].cpu().tolist()
+            scores = rat_prob[:valid_len].cpu().numpy()
+
+            sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", review_text.strip()) if s.strip()]
+            if len(sentences) > 1:
+                scored_sents = []
+                for s in sentences:
+                    s_ids = set(bert_tokenizer.encode(s, add_special_tokens=False))
+                    hit_scores = [scores[i] for i in range(1, valid_len - 1) if tok_ids[i] in s_ids]
+                    mean_sc = float(np.mean(hit_scores)) if hit_scores else 0.0
+                    scored_sents.append((mean_sc, s))
+                scored_sents.sort(key=lambda x: x[0], reverse=True)
+                focused_evidence = " ".join([s for _, s in scored_sents[:2]])
+            else:
+                focused_evidence = review_text.strip()
+
+            prompt_str = (
+                f"Paraphrase and summarize the guest's opinion on the hotel {aspect_name} "
+                f"({sentiment_label}, {star_val}/5 stars) into a short third-person analytical comment: {focused_evidence}"
+            )
+            p_enc = seq2seq_tokenizer(
+                prompt_str,
+                max_length=192,
+                truncation=True,
+                return_tensors="pt"
+            ).to(device)
+
+            enc_out = self.gen_model.encoder(
+                input_ids=p_enc["input_ids"],
+                attention_mask=p_enc["attention_mask"]
+            )
+            soft_p = outputs["soft_prompts"][0:1, aspect_idx, :, :]
+            combined_hidden = torch.cat([0.20 * soft_p, enc_out.last_hidden_state], dim=1)
+            prompt_mask = torch.ones((1, soft_p.size(1)), dtype=p_enc["attention_mask"].dtype, device=device)
+            combined_mask = torch.cat([prompt_mask, p_enc["attention_mask"]], dim=1)
+
+            gen_ids = self.gen_model.generate(
+                encoder_outputs=BaseModelOutput(last_hidden_state=combined_hidden),
+                attention_mask=combined_mask,
+                max_new_tokens=self.max_comment_len,
+                min_length=8,
+                num_beams=4,
+                no_repeat_ngram_size=3,
+                repetition_penalty=1.25,
+                early_stopping=True
+            )
+            return seq2seq_tokenizer.decode(gen_ids[0], skip_special_tokens=True).strip()
+
+
+    class Paper1BERTModel(nn.Module):
+        def __init__(self, backbone_name="bert-base-uncased", gen_model_name="google/flan-t5-small", hidden_size_bert=768, hidden_size_classifier=50, num_prompt_tokens=4, num_aspects=6, num_sent_classes=4, num_stars=5, max_comment_len=48):
+            super().__init__()
+            self.num_aspects = num_aspects
+            self.max_comment_len = max_comment_len
+            self.num_prompt_tokens = num_prompt_tokens
+
+            self.bert = AutoModel.from_pretrained(backbone_name)
+            self.gen_model = AutoModelForSeq2SeqLM.from_pretrained(gen_model_name)
+            self.gen_d_model = self.gen_model.config.d_model
+
+            self.aspect_hidden_layers = nn.ModuleList([
+                nn.Sequential(nn.Linear(hidden_size_bert, hidden_size_classifier), nn.ReLU(), nn.Dropout(0.1))
+                for _ in range(num_aspects)
+            ])
+            self.aspect_heads = nn.ModuleList([
+                nn.Linear(hidden_size_classifier, num_sent_classes)
+                for _ in range(num_aspects)
+            ])
+            self.aspect_star_heads = nn.ModuleList([
+                nn.Sequential(nn.Linear(hidden_size_bert, hidden_size_classifier), nn.ReLU(), nn.Dropout(0.1), nn.Linear(hidden_size_classifier, num_stars))
+                for _ in range(num_aspects)
+            ])
+            self.review_star_head = nn.Sequential(
+                nn.Linear(hidden_size_bert, hidden_size_classifier), nn.ReLU(), nn.Dropout(0.1), nn.Linear(hidden_size_classifier, num_stars)
+            )
+            self.token_scorer = nn.Linear(hidden_size_bert, num_aspects)
+            self.aspect_soft_prompt = nn.Sequential(
+                nn.Linear(hidden_size_bert + hidden_size_classifier, 256),
+                nn.GELU(),
+                nn.Linear(256, num_prompt_tokens * self.gen_d_model),
+                nn.LayerNorm(num_prompt_tokens * self.gen_d_model)
+            )
+
+        def forward(self, input_ids, attention_mask):
+            bsz = input_ids.size(0)
+            out = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+            seq_h = out.last_hidden_state
+            cls_h = seq_h[:, 0, :]
+
+            tok_scores = torch.sigmoid(self.token_scorer(seq_h)).transpose(1, 2) * attention_mask.unsqueeze(1).float()
+            denom = tok_scores.sum(dim=-1, keepdim=True).clamp(min=1e-4)
+            rat_pooled = torch.einsum("bal,bld->bad", tok_scores, seq_h) / denom
+
+            asp_logits, asp_star_logits, soft_prompts = [], [], []
+            for a_idx in range(self.num_aspects):
+                h_50 = self.aspect_hidden_layers[a_idx](cls_h)
+                asp_logits.append(self.aspect_heads[a_idx](h_50))
+                asp_star_logits.append(self.aspect_star_heads[a_idx](cls_h))
+                sp_in = torch.cat([rat_pooled[:, a_idx, :], h_50], dim=-1)
+                soft_prompts.append(self.aspect_soft_prompt(sp_in).view(bsz, self.num_prompt_tokens, self.gen_d_model))
+
+            return {
+                "aspect_logits": torch.stack(asp_logits, dim=1),
+                "aspect_star_logits": torch.stack(asp_star_logits, dim=1),
+                "rev_star_logits": self.review_star_head(cls_h),
+                "rationale_probs": tok_scores,
+                "soft_prompts": torch.stack(soft_prompts, dim=1)
+            }
+
+        @torch.no_grad()
+        def generate_aspect_commentary(self, aspect_idx, aspect_name, sentiment_label, star_val, review_text, outputs, input_ids, attention_mask, bert_tokenizer, seq2seq_tokenizer):
+            device = input_ids.device
+            rat_prob = outputs["rationale_probs"][0, aspect_idx]
+            valid_len = int(attention_mask[0].sum().item())
+            tok_ids = input_ids[0, :valid_len].cpu().tolist()
+            scores = rat_prob[:valid_len].cpu().numpy()
+
+            sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", review_text.strip()) if s.strip()]
+            if len(sentences) > 1:
+                scored_sents = []
+                for s in sentences:
+                    s_ids = set(bert_tokenizer.encode(s.lower(), add_special_tokens=False))
+                    hit_scores = [scores[i] for i in range(1, valid_len - 1) if tok_ids[i] in s_ids]
+                    mean_sc = float(np.mean(hit_scores)) if hit_scores else 0.0
+                    scored_sents.append((mean_sc, s))
+                scored_sents.sort(key=lambda x: x[0], reverse=True)
+                focused_evidence = " ".join([s for _, s in scored_sents[:2]])
+            else:
+                focused_evidence = review_text.strip()
+
+            prompt_str = (
+                f"Paraphrase and summarize the guest's opinion on the hotel {aspect_name} "
+                f"({sentiment_label}, {star_val}/5 stars) into a short third-person analytical comment: {focused_evidence}"
+            )
+            p_enc = seq2seq_tokenizer(prompt_str, max_length=192, truncation=True, return_tensors="pt").to(device)
+            enc_out = self.gen_model.encoder(input_ids=p_enc["input_ids"], attention_mask=p_enc["attention_mask"])
+            soft_p = outputs["soft_prompts"][0:1, aspect_idx, :, :]
+            combined_hidden = torch.cat([0.20 * soft_p, enc_out.last_hidden_state], dim=1)
+            prompt_mask = torch.ones((1, soft_p.size(1)), dtype=p_enc["attention_mask"].dtype, device=device)
+            combined_mask = torch.cat([prompt_mask, p_enc["attention_mask"]], dim=1)
+
+            gen_ids = self.gen_model.generate(
+                encoder_outputs=BaseModelOutput(last_hidden_state=combined_hidden),
+                attention_mask=combined_mask,
+                max_new_tokens=self.max_comment_len,
+                min_length=8,
+                num_beams=4,
+                no_repeat_ngram_size=3,
+                repetition_penalty=1.25,
+                early_stopping=True
+            )
+            return seq2seq_tokenizer.decode(gen_ids[0], skip_special_tokens=True).strip()
+
+
+    class Paper4MultiRegionCNN(nn.Module):
+        def __init__(self, vocab_size=6001, w2v_dim=100, region_sizes=(2, 3, 4), filters_per_region=2, gen_model_name="google/flan-t5-small", num_prompt_tokens=4, num_aspects=6, num_sent_classes=4, num_stars=5, max_comment_len=48):
+            super().__init__()
+            self.num_aspects = num_aspects
+            self.max_comment_len = max_comment_len
+            self.num_prompt_tokens = num_prompt_tokens
+
+            self.embedding = nn.Embedding(vocab_size, w2v_dim, padding_idx=0)
+            self.convs = nn.ModuleList([
+                nn.Conv1d(in_channels=w2v_dim, out_channels=filters_per_region, kernel_size=k)
+                for k in region_sizes
+            ])
+            total_filters = len(region_sizes) * filters_per_region
+            self.aspect_fc = nn.ModuleList([nn.Linear(total_filters, num_sent_classes) for _ in range(num_aspects)])
+            self.aspect_star_fc = nn.ModuleList([nn.Linear(total_filters, num_stars) for _ in range(num_aspects)])
+            self.star_fc = nn.Linear(total_filters, num_stars)
+
+            self.gen_model = AutoModelForSeq2SeqLM.from_pretrained(gen_model_name)
+            self.gen_d_model = self.gen_model.config.d_model
+            self.aspect_soft_prompt = nn.ModuleList([
+                nn.Sequential(
+                    nn.Linear(total_filters, 128),
+                    nn.GELU(),
+                    nn.Linear(128, num_prompt_tokens * self.gen_d_model),
+                    nn.LayerNorm(num_prompt_tokens * self.gen_d_model)
+                )
+                for _ in range(num_aspects)
+            ])
+            self.register_buffer("svm_weights", torch.zeros(num_aspects, num_sent_classes, vocab_size))
+            self.register_buffer("svm_biases", torch.zeros(num_aspects, num_sent_classes))
+            self.register_buffer("star_svm_w", torch.zeros(num_stars, vocab_size))
+            self.register_buffer("star_svm_b", torch.zeros(num_stars))
+
+        def forward_cnn(self, token_ids: torch.Tensor):
+            bsz = token_ids.size(0)
+            emb = self.embedding(token_ids).transpose(1, 2)
+            pooled = [F.max_pool1d(F.relu(conv(emb)), kernel_size=conv(emb).size(-1)).squeeze(-1) for conv in self.convs]
+            feat = torch.cat(pooled, dim=-1)
+            asp_logits = torch.stack([fc(feat) for fc in self.aspect_fc], dim=1)
+            asp_star_logits = torch.stack([fc(feat) for fc in self.aspect_star_fc], dim=1)
+            star_logits = self.star_fc(feat)
+            soft_prompts = torch.stack([
+                sp_head(feat).view(bsz, self.num_prompt_tokens, self.gen_d_model)
+                for sp_head in self.aspect_soft_prompt
+            ], dim=1)
+            return asp_logits, asp_star_logits, star_logits, soft_prompts
+
+        @torch.no_grad()
+        def generate_aspect_commentary(self, aspect_idx, aspect_name, sentiment_label, star_val, focused_evidence, soft_prompts, seq2seq_tokenizer):
+            device = soft_prompts.device
+            prompt_str = (
+                f"Paraphrase and summarize the guest's opinion on the hotel {aspect_name} "
+                f"({sentiment_label}, {star_val}/5 stars) into a short third-person analytical comment: {focused_evidence}"
+            )
+            p_enc = seq2seq_tokenizer(prompt_str, max_length=192, truncation=True, return_tensors="pt").to(device)
+            enc_out = self.gen_model.encoder(input_ids=p_enc["input_ids"], attention_mask=p_enc["attention_mask"])
+            soft_p = soft_prompts[0:1, aspect_idx, :, :]
+            combined_hidden = torch.cat([0.20 * soft_p, enc_out.last_hidden_state], dim=1)
+            prompt_mask = torch.ones((1, soft_p.size(1)), dtype=p_enc["attention_mask"].dtype, device=device)
+            combined_mask = torch.cat([prompt_mask, p_enc["attention_mask"]], dim=1)
+
+            gen_ids = self.gen_model.generate(
+                encoder_outputs=BaseModelOutput(last_hidden_state=combined_hidden),
+                attention_mask=combined_mask,
+                max_new_tokens=self.max_comment_len,
+                min_length=8,
+                num_beams=4,
+                no_repeat_ngram_size=3,
+                repetition_penalty=1.25,
+                early_stopping=True
+            )
+            return seq2seq_tokenizer.decode(gen_ids[0], skip_special_tokens=True).strip()
+
+
+    class GraphConvLayer(nn.Module):
+        def __init__(self, in_dim: int, out_dim: int, dropout: float = 0.5):
+            super().__init__()
+            self.linear = nn.Linear(in_dim, out_dim)
+            self.dropout = nn.Dropout(dropout)
+
+        def forward(self, x: torch.Tensor, norm_adj: torch.Tensor) -> torch.Tensor:
+            return self.dropout(F.relu(torch.bmm(norm_adj, self.linear(x))))
+
+
+    class Paper9WSD_BiLSTM_GCN(nn.Module):
+        def __init__(self, backbone_name="bert-base-uncased", gen_model_name="google/flan-t5-small", bert_dim=768, b_units=128, gcn_dim=128, dropout_rate=0.5, num_prompt_tokens=4, num_aspects=6, num_sent_classes=4, num_stars=5, max_comment_len=48):
+            super().__init__()
+            self.num_aspects = num_aspects
+            self.max_comment_len = max_comment_len
+            self.num_prompt_tokens = num_prompt_tokens
+
+            self.bert = AutoModel.from_pretrained(backbone_name)
+            self.gen_model = AutoModelForSeq2SeqLM.from_pretrained(gen_model_name)
+            self.gen_d_model = self.gen_model.config.d_model
+
+            self.bilstm = nn.LSTM(input_size=bert_dim, hidden_size=b_units, num_layers=1, batch_first=True, bidirectional=True)
+            self.bilstm_dropout = nn.Dropout(dropout_rate)
+            self.attn_queries = nn.Parameter(torch.randn(num_aspects, b_units * 2) * 0.02)
+            self.gcn1 = GraphConvLayer(bert_dim, gcn_dim, dropout_rate)
+            self.gcn2 = GraphConvLayer(gcn_dim, gcn_dim, dropout_rate)
+
+            combined_dim = b_units * 2 + gcn_dim
+            self.fusion_gate = nn.Parameter(torch.tensor(0.5))
+            self.aspect_classifiers = nn.ModuleList([nn.Sequential(nn.Dropout(dropout_rate), nn.Linear(combined_dim, num_sent_classes)) for _ in range(num_aspects)])
+            self.aspect_star_heads = nn.ModuleList([nn.Sequential(nn.Dropout(dropout_rate), nn.Linear(combined_dim, num_stars)) for _ in range(num_aspects)])
+            self.review_star_head = nn.Sequential(nn.Dropout(dropout_rate), nn.Linear(combined_dim, num_stars))
+            self.aspect_soft_prompt = nn.Sequential(
+                nn.Linear(combined_dim, 256),
+                nn.GELU(),
+                nn.Linear(256, num_prompt_tokens * self.gen_d_model),
+                nn.LayerNorm(num_prompt_tokens * self.gen_d_model)
+            )
+
+        def forward(self, input_ids, attention_mask):
+            bsz, seq_len = attention_mask.size()
+            bert_out = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+            seq_emb = bert_out.last_hidden_state
+            lstm_out = self.bilstm_dropout(self.bilstm(seq_emb)[0])
+
+            idx = torch.arange(seq_len, device=attention_mask.device)
+            local_adj = ((idx.unsqueeze(0) - idx.unsqueeze(1)).abs() <= 2).float().unsqueeze(0).expand(bsz, -1, -1)
+            adj = local_adj * (attention_mask.unsqueeze(1).float() * attention_mask.unsqueeze(2).float())
+            adj[:, 0, :] = attention_mask.float()
+            adj[:, :, 0] = attention_mask.float()
+            inv_sqrt_deg = adj.sum(dim=-1, keepdim=True).clamp(min=1.0).pow(-0.5)
+            norm_adj = inv_sqrt_deg * adj * inv_sqrt_deg.transpose(1, 2)
+
+            gcn_h = self.gcn2(self.gcn1(seq_emb, norm_adj), norm_adj)
+            pad_mask = (attention_mask == 0).unsqueeze(1)
+            attn_scores = (torch.einsum("bld,ad->bal", lstm_out, self.attn_queries) / math.sqrt(lstm_out.size(-1))).masked_fill(pad_mask, -1e4)
+            attn_weights = F.softmax(attn_scores, dim=-1)
+            rationale_probs = torch.sigmoid(attn_scores) * attention_mask.unsqueeze(1).float()
+
+            lstm_Side = torch.einsum("bal,bld->bad", attn_weights, lstm_out)
+            gcn_Side = torch.einsum("bal,bld->bad", attn_weights, gcn_h)
+            w = torch.sigmoid(self.fusion_gate)
+            combined = torch.cat([w * lstm_Side, (1.0 - w) * gcn_Side], dim=-1)
+
+            asp_logits = torch.stack([self.aspect_classifiers[a](combined[:, a, :]) for a in range(self.num_aspects)], dim=1)
+            asp_star_logits = torch.stack([self.aspect_star_heads[a](combined[:, a, :]) for a in range(self.num_aspects)], dim=1)
+            soft_prompts = torch.stack([
+                self.aspect_soft_prompt(combined[:, a, :]).view(bsz, self.num_prompt_tokens, self.gen_d_model)
+                for a in range(self.num_aspects)
+            ], dim=1)
+            return {
+                "aspect_logits": asp_logits,
+                "aspect_star_logits": asp_star_logits,
+                "rev_star_logits": self.review_star_head(combined.mean(dim=1)),
+                "rationale_probs": rationale_probs,
+                "soft_prompts": soft_prompts
+            }
+
+        @torch.no_grad()
+        def generate_aspect_commentary(self, aspect_idx, aspect_name, sentiment_label, star_val, review_text, outputs, input_ids, attention_mask, bert_tokenizer, seq2seq_tokenizer):
+            device = input_ids.device
+            rat_prob = outputs["rationale_probs"][0, aspect_idx]
+            valid_len = int(attention_mask[0].sum().item())
+            tok_ids = input_ids[0, :valid_len].cpu().tolist()
+            scores = rat_prob[:valid_len].cpu().numpy()
+
+            sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", review_text.strip()) if s.strip()]
+            if len(sentences) > 1:
+                scored_sents = []
+                for s in sentences:
+                    s_ids = set(bert_tokenizer.encode(s, add_special_tokens=False))
+                    hit_scores = [scores[i] for i in range(1, valid_len - 1) if tok_ids[i] in s_ids]
+                    mean_sc = float(np.mean(hit_scores)) if hit_scores else 0.0
+                    scored_sents.append((mean_sc, s))
+                scored_sents.sort(key=lambda x: x[0], reverse=True)
+                focused_evidence = " ".join([s for _, s in scored_sents[:2]])
+            else:
+                focused_evidence = review_text.strip()
+
+            prompt_str = (
+                f"Paraphrase and summarize the guest's opinion on the hotel {aspect_name} "
+                f"({sentiment_label}, {star_val}/5 stars) into a short third-person analytical comment: {focused_evidence}"
+            )
+            p_enc = seq2seq_tokenizer(prompt_str, max_length=192, truncation=True, return_tensors="pt").to(device)
+            enc_out = self.gen_model.encoder(input_ids=p_enc["input_ids"], attention_mask=p_enc["attention_mask"])
+            soft_p = outputs["soft_prompts"][0:1, aspect_idx, :, :]
+            combined_hidden = torch.cat([0.20 * soft_p, enc_out.last_hidden_state], dim=1)
+            prompt_mask = torch.ones((1, soft_p.size(1)), dtype=p_enc["attention_mask"].dtype, device=device)
+            combined_mask = torch.cat([prompt_mask, p_enc["attention_mask"]], dim=1)
+
+            gen_ids = self.gen_model.generate(
+                encoder_outputs=BaseModelOutput(last_hidden_state=combined_hidden),
+                attention_mask=combined_mask,
+                max_new_tokens=self.max_comment_len,
+                min_length=8,
+                num_beams=4,
+                no_repeat_ngram_size=3,
+                repetition_penalty=1.25,
+                early_stopping=True
+            )
+            return seq2seq_tokenizer.decode(gen_ids[0], skip_special_tokens=True).strip()
+
+
 def decode_corn(corn_logits):
     probs = torch.sigmoid(corn_logits)
     cum_probs = torch.cumprod(probs, dim=-1)
     return (cum_probs >= 0.5).sum(dim=-1)
 
 
-def run_dataset_evaluation_worker(model_name: str, split: str = "test", sample_limit_str: str = "all"):
-    global BENCHMARK_STATE
-    BENCHMARK_STATE["running"] = True
-    BENCHMARK_STATE["progress_pct"] = 0
-    BENCHMARK_STATE["message"] = "Đang khởi tạo đánh giá..."
-    BENCHMARK_STATE["error"] = None
+def get_benchmark_data(selected_model_name: str) -> Dict[str, Any]:
+    models = scan_available_models()
+    if not models or not selected_model_name:
+        return {
+            "has_model": False,
+            "selected_model": None,
+            "message": "Không có",
+            "metrics": None,
+            "rows": []
+        }
 
-    t_start = time.time()
+    model_path = get_model_dir() / selected_model_name
+    if not model_path.exists():
+        return {
+            "has_model": False,
+            "selected_model": None,
+            "message": "Không có",
+            "metrics": None,
+            "rows": []
+        }
+
+    metrics_dict = None
+    epoch_val = None
     try:
-        if not TORCH_AVAILABLE:
-            raise RuntimeError("PyTorch hoặc Transformers chưa được cài đặt trong môi trường.")
-
-        model_path = get_model_dir() / model_name
-        if not model_path.exists():
-            raise FileNotFoundError(f"Không tìm thấy file mô hình: {model_name}")
-
-        dataset_path = get_dataset_path()
-        if not dataset_path:
-            raise FileNotFoundError("Không tìm thấy file dữ liệu hotel_reviews.parquet trong data/df/.")
-
-        import pandas as pd
-        BENCHMARK_STATE["message"] = f"Đang đọc dữ liệu từ {dataset_path.name}..."
-        BENCHMARK_STATE["progress_pct"] = 5
-
-        df = pd.read_parquet(dataset_path)
-        split_clean = str(split).lower().strip()
-        if "split" not in df.columns:
-            raise ValueError("File parquet không có cột 'split'.")
-
-        df_split = df[df["split"].str.lower() == split_clean].reset_index(drop=True)
-        if len(df_split) == 0:
-            raise ValueError(f"Không tìm thấy dữ liệu split '{split}' trong file.")
-
-        if sample_limit_str != "all":
-            try:
-                limit_num = int(sample_limit_str)
-                df_eval = df_split.head(limit_num).reset_index(drop=True)
-            except Exception:
-                df_eval = df_split
+        if TORCH_AVAILABLE:
+            ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
         else:
-            df_eval = df_split
-
-        total_samples = len(df_eval)
-        BENCHMARK_STATE["message"] = f"Đang nạp mô hình {model_name}..."
-        BENCHMARK_STATE["progress_pct"] = 10
-
-        if model_name not in LOADED_MODEL_CACHE:
-            ckpt = torch.load(model_path, map_location=DEVICE, weights_only=False)
-            if not isinstance(ckpt, dict) or "model_state_dict" not in ckpt:
-                raise ValueError(f"File '{model_name}' không chứa trọng số model_state_dict hợp lệ.")
-            tok = AutoTokenizer.from_pretrained("bert-base-uncased")
-            net = CRAM_ABSA_MultiAspectModel().to(DEVICE)
-            net.load_state_dict(ckpt["model_state_dict"], strict=False)
-            net.eval()
-            LOADED_MODEL_CACHE[model_name] = {
-                "model": net,
-                "tokenizer": tok,
-                "feat_mean": ckpt.get("feat_mean", None),
-                "feat_std": ckpt.get("feat_std", None),
-                "feature_cols_20": ckpt.get("feature_cols_20", None)
-            }
-
-        bundle = LOADED_MODEL_CACHE[model_name]
-        net = bundle["model"]
-        tok = bundle["tokenizer"]
-        f_mean = bundle["feat_mean"]
-        f_std = bundle["feat_std"]
-        f_cols = bundle.get("feature_cols_20")
-
-        if f_cols is None:
-            f_cols = [
-                "feat_aspect_count", "feat_dominant_aspect", "feat_net_sentiment_score", "feat_sentiment_conflict",
-                "feat_evidence_density", "feat_avg_rationale_len", "feat_has_cross_overlap",
-                "feat_service_sentiment", "feat_facility_sentiment", "feat_experience_sentiment",
-                "feat_amenity_sentiment", "feat_loyalty_sentiment", "feat_branding_sentiment",
-                "feat_aspect_coverage_ratio", "feat_recency_weight", "feat_consensus_strength",
-                "feat_temporal_aspect_sentiment", "feat_nltk_clean_token_ratio",
-                "feat_nltk_opinion_negation_density", "feat_ebr_aspect_prototype_sim"
-            ]
-
-        raw_feats = df_eval[f_cols].values.astype(np.float32)
-        if f_mean is not None and f_std is not None:
-            norm_feats = (raw_feats - f_mean) / np.where(f_std < 1e-6, 1.0, f_std)
-        else:
-            norm_feats = raw_feats
-
-        batch_size = 16
-        total_batches = math.ceil(total_samples / batch_size)
-
-        all_star_preds = []
-        all_star_trues = []
-        all_asp_preds = []
-        all_asp_trues = []
-        rat_inter, rat_pred_sum, rat_true_sum = 0.0, 0.0, 0.0
-        overlap_rates = []
-        total_loss = 0.0
-
-        BENCHMARK_STATE["message"] = f"Bắt đầu đánh giá {total_samples} mẫu..."
-
-        for b_i in range(total_batches):
-            s_idx = b_i * batch_size
-            e_idx = min(s_idx + batch_size, total_samples)
-            batch_df = df_eval.iloc[s_idx:e_idx]
-            b_size = len(batch_df)
-
-            texts = [unicodedata.normalize("NFC", str(t)) for t in batch_df["review_text"].tolist()]
-            enc = tok(
-                texts,
-                max_length=256,
-                padding="max_length",
-                truncation=True,
-                return_offsets_mapping=True,
-                return_tensors="pt"
-            )
-            offsets = enc.pop("offset_mapping").numpy()
-            input_ids = enc["input_ids"].to(DEVICE)
-            attention_mask = enc["attention_mask"].to(DEVICE)
-            dense_tensor = torch.tensor(norm_feats[s_idx:e_idx], dtype=torch.float32, device=DEVICE)
-
-            batch_aspect_labels = []
-            batch_rationale_masks = []
-            batch_ordinal = []
-
-            for row_i, (_, row) in enumerate(batch_df.iterrows()):
-                ord_val = int(row.get("ordinal_rating", int(row["rating_5"]) - 1))
-                batch_ordinal.append(max(0, min(4, ord_val)))
-
-                anns = parse_annotations_safe(row.get("aspect_annotations", []))
-                asp_votes = defaultdict(list)
-                r_mask = np.zeros((6, 256), dtype=np.float32)
-                sample_offsets = offsets[row_i]
-
-                for ann in anns:
-                    asp = ann.get("aspect")
-                    if asp not in ASPECT_ID_MAP or asp == "None":
-                        continue
-                    a_idx = ASPECT_ID_MAP[asp] - 1
-                    s_char = int(ann.get("start_char", 0))
-                    e_char = int(ann.get("end_char", 0))
-                    sent = ann.get("sentiment", "Neutral")
-                    asp_votes[a_idx].append(SENTIMENT_TO_ID.get(sent, 2))
-                    for t_i, (tok_s, tok_e) in enumerate(sample_offsets):
-                        if tok_e > tok_s and tok_s < e_char and tok_e > s_char:
-                            r_mask[a_idx, t_i] = 1.0
-
-                asp_labels = [0] * 6
-                for a_idx, votes in asp_votes.items():
-                    asp_labels[a_idx] = Counter(votes).most_common(1)[0][0]
-
-                batch_aspect_labels.append(asp_labels)
-                batch_rationale_masks.append(r_mask)
-
-            with torch.no_grad():
-                outputs = net(input_ids=input_ids, attention_mask=attention_mask, dense_features=dense_tensor)
-
-            star_preds = decode_corn(outputs["corn_logits"]).cpu().numpy()
-            asp_preds = outputs["aspect_logits"].argmax(dim=-1).cpu().numpy()
-
-            all_star_preds.extend(star_preds.tolist())
-            all_star_trues.extend(batch_ordinal)
-            all_asp_preds.append(asp_preds)
-            all_asp_trues.append(np.array(batch_aspect_labels))
-
-            pred_mask = (outputs["rationale_probs"] >= 0.5).float().cpu()
-            true_mask = torch.tensor(np.array(batch_rationale_masks), dtype=torch.float32)
-
-            rat_inter += (pred_mask * true_mask).sum().item()
-            rat_pred_sum += pred_mask.sum().item()
-            rat_true_sum += true_mask.sum().item()
-
-            active_asp_per_tok = pred_mask.sum(dim=1)
-            leaked_toks = (active_asp_per_tok > 1.0).float().sum().item()
-            active_toks = (active_asp_per_tok >= 1.0).float().sum().item()
-            overlap_rates.append(leaked_toks / max(active_toks, 1.0))
-
-            # Tính hàm mất mát
-            corn_targets = torch.zeros((b_size, 4), dtype=torch.float32, device=DEVICE)
-            for row_i, r in enumerate(batch_ordinal):
-                for k in range(4):
-                    if r > k:
-                        corn_targets[row_i, k] = 1.0
-            corn_loss = F.binary_cross_entropy_with_logits(outputs["corn_logits"], corn_targets)
-            aspect_target_tensor = torch.tensor(np.array(batch_aspect_labels), dtype=torch.long, device=DEVICE)
-            aspect_loss = F.cross_entropy(outputs["aspect_logits"].view(-1, 4), aspect_target_tensor.view(-1))
-            total_loss += (corn_loss.item() + aspect_loss.item()) * b_size
-
-            pct = int(((b_i + 1) / total_batches) * 85) + 10
-            BENCHMARK_STATE["progress_pct"] = min(pct, 95)
-            BENCHMARK_STATE["message"] = f"Đang đánh giá batch {b_i + 1}/{total_batches} ({e_idx}/{total_samples} mẫu)..."
-
-        BENCHMARK_STATE["message"] = "Đang tổng hợp các chỉ số đánh giá..."
-        BENCHMARK_STATE["progress_pct"] = 96
-
-        y_true_star = np.array(all_star_trues)
-        y_pred_star = np.array(all_star_preds)
-        acc_at_0 = float(np.mean(y_true_star == y_pred_star) * 100.0)
-
-        per_star_mae = [
-            float(np.abs(y_true_star[y_true_star == k] - y_pred_star[y_true_star == k]).mean())
-            for k in range(5) if np.any(y_true_star == k)
-        ]
-        macro_mae = float(np.mean(per_star_mae)) if per_star_mae else 0.0
-
-        Y_asp_true = np.vstack(all_asp_trues)
-        Y_asp_pred = np.vstack(all_asp_preds)
-        aspect_f1s = [
-            float(f1_score(Y_asp_true[:, a], Y_asp_pred[:, a], average="macro", zero_division=0) * 100.0)
-            for a in range(len(CANONICAL_ASPECTS))
-        ]
-        macro_aspect_f1 = float(np.mean(aspect_f1s))
-        rationale_f1 = float((2.0 * rat_inter / max(rat_pred_sum + rat_true_sum, 1.0)) * 100.0)
-        leakage_rate = float(np.mean(overlap_rates) * 100.0)
-        avg_loss = float(total_loss / max(total_samples, 1))
-        elapsed_sec = round(time.time() - t_start, 1)
-
-        result_payload = {
-            "model": model_name,
-            "split": split_clean.upper(),
-            "samples": f"{total_samples:,}",
-            "val_loss": round(avg_loss, 4),
-            "acc_at_0": round(acc_at_0, 2),
-            "aspect_macro_f1": round(macro_aspect_f1, 2),
-            "macro_mae": round(macro_mae, 4),
-            "rationale_f1": round(rationale_f1, 2),
-            "leakage_rate": round(leakage_rate, 2),
-            "elapsed": f"{elapsed_sec}s"
-        }
-
-        BENCHMARK_STATE["latest_result"] = {
-            "has_model": True,
-            "selected_model": model_name,
-            "message": "OK",
-            "metrics": result_payload,
-            "rows": [result_payload]
-        }
-        BENCHMARK_STATE["progress_pct"] = 100
-        BENCHMARK_STATE["message"] = f"Đã hoàn thành đánh giá ({total_samples:,} mẫu trong {elapsed_sec}s)!"
-        BENCHMARK_STATE["running"] = False
-
+            import pickle
+            with open(model_path, "rb") as f:
+                ckpt = pickle.load(f)
+        if isinstance(ckpt, dict):
+            metrics_dict = ckpt.get("val_metrics") or ckpt.get("metrics")
+            epoch_val = ckpt.get("epoch")
     except Exception as e:
-        BENCHMARK_STATE["running"] = False
-        BENCHMARK_STATE["error"] = str(e)
-        BENCHMARK_STATE["message"] = f"Lỗi đánh giá: {e}"
+        return {
+            "has_model": False,
+            "selected_model": selected_model_name,
+            "message": f"Không thể đọc file model: {e}",
+            "metrics": None,
+            "rows": []
+        }
+
+    if not metrics_dict:
+        return {
+            "has_model": True,
+            "selected_model": selected_model_name,
+            "message": "File model chưa lưu kèm thống kê val_metrics.",
+            "metrics": None,
+            "rows": []
+        }
+
+    acc0 = round(float(metrics_dict.get("acc_at_0", 0.0)), 2)
+    asp_f1 = round(float(metrics_dict.get("aspect_macro_f1", 0.0)), 2)
+    mae = round(float(metrics_dict.get("macro_mae", 0.0)), 4)
+    rat_f1 = round(float(metrics_dict.get("rationale_f1", 0.0)), 2)
+    leak = round(float(metrics_dict.get("leakage_rate", 0.0)), 2)
+    vloss = round(float(metrics_dict.get("val_loss", 0.0)), 4)
+
+    rows = [
+        {
+            "model": selected_model_name,
+            "epoch": epoch_val if epoch_val is not None else "-",
+            "val_loss": vloss,
+            "acc_at_0": acc0,
+            "aspect_macro_f1": asp_f1,
+            "macro_mae": mae,
+            "rationale_f1": rat_f1,
+            "leakage_rate": leak
+        }
+    ]
+
+    return {
+        "has_model": True,
+        "selected_model": selected_model_name,
+        "message": "OK",
+        "metrics": {
+            "acc_at_0": acc0,
+            "aspect_macro_f1": asp_f1,
+            "macro_mae": mae,
+            "rationale_f1": rat_f1,
+            "leakage_rate": leak,
+            "val_loss": vloss
+        },
+        "rows": rows
+    }
 
 
 def evaluate_new_review(review_text: str, model_name: str) -> Dict[str, Any]:
@@ -700,59 +1034,140 @@ def evaluate_new_review(review_text: str, model_name: str) -> Dict[str, Any]:
                     "error": f"File '{model_name}' không chứa trọng số model_state_dict hợp lệ.",
                     "formatted_text": f"File '{model_name}' không chứa trọng số model_state_dict hợp lệ."
                 }
-            tok = AutoTokenizer.from_pretrained("bert-base-uncased")
-            net = CRAM_ABSA_MultiAspectModel().to(DEVICE)
+            state_keys = set(ckpt["model_state_dict"].keys())
+            arch = ckpt.get("architecture", "")
+            if not arch:
+                if "gcn1.linear.weight" in state_keys:
+                    arch = "paper9_wsd_bilstm_gcn"
+                elif "svm_weights" in state_keys:
+                    arch = "paper4_bm25_tfigm_svm_cnn"
+                elif "token_scorer.weight" in state_keys:
+                    arch = "paper1_bert"
+                elif any(k.startswith("gen_model.") for k in state_keys):
+                    arch = "cram_absa_v2"
+                else:
+                    arch = "cram_absa"
+
+            gen_name = ckpt.get("gen_model_name", "google/flan-t5-small")
+            tok = AutoTokenizer.from_pretrained("bert-base-uncased") if arch != "paper4_bm25_tfigm_svm_cnn" else None
+            gen_tok = AutoTokenizer.from_pretrained(gen_name) if arch in ("cram_absa_v2", "paper1_bert", "paper4_bm25_tfigm_svm_cnn", "paper9_wsd_bilstm_gcn") else None
+
+            if arch == "cram_absa_v2":
+                net = CRAM_ABSA_v2_MultiAspectModel(gen_model_name=gen_name).to(DEVICE)
+            elif arch == "paper1_bert":
+                net = Paper1BERTModel(gen_model_name=gen_name).to(DEVICE)
+            elif arch == "paper4_bm25_tfigm_svm_cnn":
+                v_size = ckpt["model_state_dict"]["embedding.weight"].shape[0]
+                net = Paper4MultiRegionCNN(vocab_size=v_size, gen_model_name=gen_name).to(DEVICE)
+            elif arch == "paper9_wsd_bilstm_gcn":
+                net = Paper9WSD_BiLSTM_GCN(gen_model_name=gen_name).to(DEVICE)
+            else:
+                net = CRAM_ABSA_MultiAspectModel().to(DEVICE)
+
             net.load_state_dict(ckpt["model_state_dict"], strict=False)
             net.eval()
             LOADED_MODEL_CACHE[model_name] = {
+                "arch": arch,
+                "ckpt": ckpt,
                 "model": net,
                 "tokenizer": tok,
+                "gen_tokenizer": gen_tok,
                 "feat_mean": ckpt.get("feat_mean", None),
                 "feat_std": ckpt.get("feat_std", None)
             }
 
         bundle = LOADED_MODEL_CACHE[model_name]
+        arch = bundle["arch"]
+        ckpt = bundle["ckpt"]
         net = bundle["model"]
         tok = bundle["tokenizer"]
+        gen_tok = bundle["gen_tokenizer"]
         f_mean = bundle["feat_mean"]
         f_std = bundle["feat_std"]
 
-        raw_feat_20 = extract_20_features_for_new_review(raw_text, recency_weight=1.0)
-        if f_mean is not None and f_std is not None:
-            norm_feat_20 = (raw_feat_20 - f_mean) / np.where(f_std < 1e-6, 1.0, f_std)
-        else:
-            norm_feat_20 = raw_feat_20
-
-        enc = tok(
-            raw_text,
-            max_length=256,
-            padding="max_length",
-            truncation=True,
-            return_tensors="pt"
-        )
-        input_ids = enc["input_ids"].to(DEVICE)
-        attention_mask = enc["attention_mask"].to(DEVICE)
-        dense_tensor = torch.tensor(norm_feat_20, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+        mentioned_aspects = []
+        lines = []
+        aspect_details = {}
 
         with torch.no_grad():
-            outputs = net(input_ids=input_ids, attention_mask=attention_mask, dense_features=dense_tensor)
-            asp_probs = F.softmax(outputs["aspect_logits"].squeeze(0), dim=-1).cpu().numpy()
-            asp_stars = decode_corn(outputs["aspect_star_logits"].squeeze(0)).cpu().numpy() + 1
+            if arch == "paper4_bm25_tfigm_svm_cnn":
+                from collections import Counter
+                word2idx = ckpt.get("word2idx", {})
+                igm_weights = ckpt.get("igm_weights", np.zeros(net.embedding.num_embeddings, dtype=np.float32))
+                norm = unicodedata.normalize("NFC", raw_text).lower()
+                unigrams = [t for t in re.findall(r"[a-z]+", norm) if t not in RAW_STOPWORDS and len(t) > 1]
+                bigrams = [f"{unigrams[i]}_{unigrams[i+1]}" for i in range(len(unigrams) - 1)]
+                toks = unigrams + bigrams
+                ids = [word2idx[t] for t in toks if t in word2idx][:128]
+                if len(ids) < 128:
+                    ids = ids + [0] * (128 - len(ids))
+                seq_t = torch.tensor([ids], dtype=torch.long, device=DEVICE)
 
-            mentioned_aspects = []
-            lines = []
-            aspect_details = {}
+                vec = np.zeros(net.embedding.num_embeddings, dtype=np.float32)
+                for t, freq in Counter(toks).items():
+                    if t in word2idx:
+                        vid = word2idx[t]
+                        vec[vid] = math.log(1.0 + freq) * (1.0 + 7.0 * float(igm_weights[vid]))
+                v_norm = np.linalg.norm(vec)
+                if v_norm > 0:
+                    vec = vec / v_norm
+                v_igm = torch.tensor(vec, dtype=torch.float32, device=DEVICE).unsqueeze(0)
 
-            for a_idx, asp in enumerate(CANONICAL_ASPECTS):
-                pred_cls = int(np.argmax(asp_probs[a_idx]))
-                if pred_cls != 0:
-                    mentioned_aspects.append(asp)
-                    star_val = int(asp_stars[a_idx])
-                    sent_label = ID_TO_SENTIMENT[pred_cls]
-                    gen_text = net.generate_aspect_commentary(a_idx, outputs, input_ids, attention_mask, tok)
-                    aspect_details[asp] = f"{star_val}/5 ★ ({sent_label}) - {gen_text}"
+                cnn_asp_l, cnn_asp_star_l, _, soft_p = net.forward_cnn(seq_t)
+                svm_asp_l = torch.einsum("bd,acd->bac", v_igm, net.svm_weights) + net.svm_biases
+                svm_star_l = v_igm @ net.star_svm_w.t() + net.star_svm_b
+                blended_asp = (0.7 * svm_asp_l + 0.3 * cnn_asp_l).squeeze(0).cpu().numpy()
+
+                for a_idx, asp in enumerate(CANONICAL_ASPECTS):
+                    pred_cls = int(np.argmax(blended_asp[a_idx]))
+                    if pred_cls != 0:
+                        mentioned_aspects.append(asp)
+                        sent_label = ID_TO_SENTIMENT[pred_cls]
+                        star_val = int((0.5 * svm_star_l[0] + 0.5 * cnn_asp_star_l[0, a_idx]).argmax().item()) + 1
+                        gen_text = net.generate_aspect_commentary(a_idx, asp, sent_label, star_val, raw_text, soft_p, gen_tok)
+                        aspect_details[asp] = f"{star_val}/5 ★ ({sent_label}) - {gen_text}"
+                    else:
+                        aspect_details[asp] = ""
+            else:
+                enc = tok(raw_text, max_length=256, padding="max_length", truncation=True, return_tensors="pt")
+                input_ids = enc["input_ids"].to(DEVICE)
+                attention_mask = enc["attention_mask"].to(DEVICE)
+
+                if arch in ("cram_absa", "cram_absa_v2"):
+                    raw_feat_20 = extract_20_features_for_new_review(raw_text, recency_weight=1.0)
+                    norm_feat_20 = (raw_feat_20 - f_mean) / np.where(f_std < 1e-6, 1.0, f_std) if (f_mean is not None and f_std is not None) else raw_feat_20
+                    dense_tensor = torch.tensor(norm_feat_20, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+                    outputs = net(input_ids=input_ids, attention_mask=attention_mask, dense_features=dense_tensor)
+                    asp_stars = decode_corn(outputs["aspect_star_logits"].squeeze(0)).cpu().numpy() + 1
                 else:
-                    aspect_details[asp] = ""
+                    outputs = net(input_ids=input_ids, attention_mask=attention_mask)
+                    asp_stars = outputs["aspect_star_logits"].squeeze(0).argmax(dim=-1).cpu().numpy() + 1
+
+                asp_probs = F.softmax(outputs["aspect_logits"].squeeze(0), dim=-1).cpu().numpy()
+                for a_idx, asp in enumerate(CANONICAL_ASPECTS):
+                    pred_cls = int(np.argmax(asp_probs[a_idx]))
+                    if pred_cls != 0:
+                        mentioned_aspects.append(asp)
+                        star_val = int(asp_stars[a_idx])
+                        sent_label = ID_TO_SENTIMENT[pred_cls]
+                        if gen_tok is not None and arch in ("cram_absa_v2", "paper1_bert", "paper9_wsd_bilstm_gcn"):
+                            gen_text = net.generate_aspect_commentary(
+                                aspect_idx=a_idx,
+                                aspect_name=asp,
+                                sentiment_label=sent_label,
+                                star_val=star_val,
+                                review_text=raw_text,
+                                outputs=outputs,
+                                input_ids=input_ids,
+                                attention_mask=attention_mask,
+                                bert_tokenizer=tok,
+                                seq2seq_tokenizer=gen_tok
+                            )
+                        else:
+                            gen_text = net.generate_aspect_commentary(a_idx, outputs, input_ids, attention_mask, tok)
+                        aspect_details[asp] = f"{star_val}/5 ★ ({sent_label}) - {gen_text}"
+                    else:
+                        aspect_details[asp] = ""
 
             aspect_str = ", ".join(mentioned_aspects) if mentioned_aspects else "None"
             lines.append(f"- Aspect: {aspect_str}")
@@ -776,19 +1191,18 @@ def evaluate_new_review(review_text: str, model_name: str) -> Dict[str, Any]:
 
 
 def generate_csv_bytes(selected_model: str) -> bytes:
+    data = get_benchmark_data(selected_model)
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([
-        "Model", "Split", "Samples", "Loss", "Acc@0 (%)",
-        "6-Aspect Macro-F1 (%)", "Macro-MAE", "Rationale F1 (%)", "Leakage (%)", "Elapsed"
+        "Model", "Epoch", "Val Loss", "Acc@0 (%)",
+        "6-Aspect Macro-F1 (%)", "Macro-MAE", "Rationale F1 (%)", "Leakage (%)"
     ])
-    res = BENCHMARK_STATE.get("latest_result")
-    if res and res.get("rows"):
-        for r in res["rows"]:
-            writer.writerow([
-                r["model"], r["split"], r["samples"], r["val_loss"], r["acc_at_0"],
-                r["aspect_macro_f1"], r["macro_mae"], r["rationale_f1"], r["leakage_rate"], r["elapsed"]
-            ])
+    for r in data.get("rows", []):
+        writer.writerow([
+            r["model"], r["epoch"], r["val_loss"], r["acc_at_0"],
+            r["aspect_macro_f1"], r["macro_mae"], r["rationale_f1"], r["leakage_rate"]
+        ])
     return buf.getvalue().encode("utf-8-sig")
 
 
@@ -797,7 +1211,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Benchmark</title>
+  <title>CRAM-ABSA Benchmark</title>
   <style>
     :root {
       --primary: #0066cc;
@@ -828,13 +1242,6 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       -webkit-font-smoothing: antialiased;
     }
 
-    html, body {
-      height: 100vh;
-      overflow: hidden;
-      margin: 0;
-      padding: 0;
-    }
-
     body {
       font-family: var(--font-text);
       font-size: 17px;
@@ -845,18 +1252,65 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       background-color: var(--canvas-parchment);
       display: flex;
       flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .global-nav {
+      height: 44px;
+      background-color: var(--surface-black);
+      color: var(--body-on-dark);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      font-size: 12px;
+      letter-spacing: -0.12px;
+    }
+
+    .global-nav-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--body-on-dark);
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .sub-nav-frosted {
+      height: 52px;
+      background-color: rgba(245, 245, 247, 0.82);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      border-bottom: 1px solid var(--hairline);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+    }
+
+    .sub-nav-title {
+      font-family: var(--font-display);
+      font-size: 21px;
+      font-weight: 600;
+      letter-spacing: 0.231px;
+    }
+
+    .sub-nav-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
 
     .workspace-shell {
       display: flex;
+      flex: 1;
+      max-width: 1440px;
       width: 100%;
-      height: 100vh;
-      overflow: hidden;
-      margin: 0;
+      margin: 0 auto;
     }
 
     .sidebar {
-      width: 250px;
+      width: 240px;
       background-color: var(--canvas-parchment);
       border-right: 1px solid var(--hairline);
       padding: 24px 16px;
@@ -864,25 +1318,6 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       flex-direction: column;
       justify-content: space-between;
       flex-shrink: 0;
-      height: 100vh;
-      overflow-y: auto;
-    }
-
-    .sidebar-brand {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      color: var(--ink);
-      font-family: var(--font-display);
-      font-size: 19px;
-      font-weight: 700;
-      letter-spacing: -0.2px;
-      padding: 0 10px;
-      margin-bottom: 24px;
-    }
-
-    .sidebar-brand svg {
-      color: var(--primary);
     }
 
     .sidebar-section-label {
@@ -960,127 +1395,10 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
 
     .main-canvas {
       flex: 1;
-      padding: 32px 36px 40px;
+      padding: 32px;
       display: flex;
       flex-direction: column;
       gap: 24px;
-      height: 100vh;
-      overflow-y: auto;
-      position: relative;
-    }
-
-    /* Floating Island Action Bar */
-    .floating-controls-bar {
-      position: fixed;
-      top: 20px;
-      right: 28px;
-      z-index: 1000;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 8px;
-      background: rgba(255, 255, 255, 0.86);
-      backdrop-filter: saturate(180%) blur(20px);
-      -webkit-backdrop-filter: saturate(180%) blur(20px);
-      border: 1px solid rgba(0, 0, 0, 0.08);
-      border-radius: var(--rounded-pill);
-      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    /* Thống nhất kiểu dáng bo tròn pill cho toàn bộ điều khiển */
-    .floating-pill-control {
-      height: 38px;
-      border-radius: var(--rounded-pill) !important;
-      font-family: var(--font-text);
-      font-size: 13px;
-      font-weight: 500;
-      box-sizing: border-box;
-      transition: all 0.15s ease;
-      outline: none;
-    }
-
-    .floating-pill-control:active {
-      transform: scale(0.96);
-    }
-
-    .floating-pill-select {
-      appearance: none;
-      -webkit-appearance: none;
-      -moz-appearance: none;
-      background-color: var(--canvas);
-      color: var(--ink);
-      border: 1px solid var(--hairline);
-      border-radius: var(--rounded-pill) !important;
-      padding: 0 34px 0 16px;
-      cursor: pointer;
-      background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%237A7A7A' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 14px center;
-      background-size: 10px 6px;
-      line-height: 36px;
-    }
-
-    .floating-pill-select:hover {
-      border-color: #c7c7c9;
-      background-color: var(--surface-pearl);
-    }
-
-    .floating-pill-icon {
-      width: 38px;
-      min-width: 38px;
-      padding: 0;
-      border: 1px solid var(--hairline);
-      background-color: var(--canvas);
-      color: var(--ink);
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-    }
-
-    .floating-pill-icon:hover {
-      border-color: #c7c7c9;
-      background-color: var(--surface-pearl);
-    }
-
-    .floating-pill-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 7px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-
-    .floating-pill-btn.secondary {
-      background-color: var(--canvas);
-      color: var(--primary);
-      border: 1px solid var(--primary);
-      padding: 0 16px;
-    }
-
-    .floating-pill-btn.secondary:hover {
-      background-color: rgba(0, 102, 204, 0.06);
-    }
-
-    .floating-pill-btn.primary {
-      background-color: var(--primary);
-      color: #ffffff;
-      border: 1px solid transparent;
-      padding: 0 18px;
-      font-weight: 600;
-      box-shadow: 0 2px 8px rgba(0, 102, 204, 0.25);
-    }
-
-    .floating-pill-btn.primary:hover {
-      background-color: var(--primary-focus);
-    }
-
-    .floating-pill-btn.primary:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      box-shadow: none;
     }
 
     .view-panel {
@@ -1112,12 +1430,10 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       border-radius: var(--rounded-pill);
       padding: 10px 20px;
       cursor: pointer;
-      box-sizing: border-box;
-      transition: all 0.15s ease;
     }
 
     .btn-pill-primary:active, .btn-pill-secondary:active, .btn-icon-circle:active {
-      transform: scale(0.96);
+      transform: scale(0.95);
     }
 
     .btn-pill-secondary {
@@ -1132,8 +1448,6 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       border-radius: var(--rounded-pill);
       padding: 9px 18px;
       cursor: pointer;
-      box-sizing: border-box;
-      transition: all 0.15s ease;
     }
 
     .btn-icon-circle {
@@ -1147,30 +1461,19 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      box-sizing: border-box;
-      transition: all 0.15s ease;
     }
 
     .apple-select {
-      appearance: none;
-      -webkit-appearance: none;
-      -moz-appearance: none;
       height: 38px;
       background-color: var(--canvas);
       color: var(--ink);
       font-family: var(--font-text);
       font-size: 14px;
-      font-weight: 500;
+      font-weight: 600;
       border: 1px solid var(--hairline);
-      border-radius: var(--rounded-pill) !important;
-      padding: 0 34px 0 16px;
+      border-radius: var(--rounded-pill);
+      padding: 0 16px;
       outline: none;
-      box-sizing: border-box;
-      cursor: pointer;
-      background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%237A7A7A' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 14px center;
-      background-size: 10px 6px;
     }
 
     .utility-card {
@@ -1281,38 +1584,42 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
 </head>
 <body>
 
-  <!-- Floating Controls Capsule (Thống nhất toàn bộ phím điều khiển dạng bo tròn) -->
-  <div class="floating-controls-bar">
-    <select id="modelSelect" class="floating-pill-control floating-pill-select" onchange="onModelChange()"></select>
-    <button class="floating-pill-control floating-pill-icon" title="Quét lại thư mục model/" onclick="refreshModelList()">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="23 4 23 10 17 10"></polyline>
-        <polyline points="1 20 1 14 7 14"></polyline>
-        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+  <header class="global-nav">
+    <a href="#" class="global-nav-brand">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+        <polyline points="2 17 12 22 22 17"></polyline>
+        <polyline points="2 12 12 17 22 12"></polyline>
       </svg>
-    </button>
-    <div id="benchmarkActionGroup" style="display:inline-flex; align-items:center; gap:8px;">
-      <select id="splitSelect" class="floating-pill-control floating-pill-select">
-        <option value="test">Test set (999 mẫu)</option>
-        <option value="val">Val set (999 mẫu)</option>
-      </select>
-      <select id="sampleSelect" class="floating-pill-control floating-pill-select">
-        <option value="all">Toàn bộ mẫu</option>
-        <option value="100">Nhanh 100 mẫu</option>
-      </select>
-      <button class="floating-pill-control floating-pill-btn secondary" id="btnExportCSV" onclick="exportCSV()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <span>CRAM-ABSA</span>
+    </a>
+    <span id="navModelStatus">Model: Không có</span>
+  </header>
+
+  <div class="sub-nav-frosted">
+    <div class="sub-nav-title">Benchmark</div>
+    <div class="sub-nav-controls">
+      <select id="modelSelect" class="apple-select" onchange="onModelChange()"></select>
+      <button class="btn-icon-circle" title="Quét lại thư mục model/" onclick="refreshModelList()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <polyline points="1 20 1 14 7 14"></polyline>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+        </svg>
+      </button>
+      <button class="btn-pill-secondary" onclick="exportCSV()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
           <polyline points="7 10 12 15 17 10"></polyline>
           <line x1="12" y1="15" x2="12" y2="3"></line>
         </svg>
         <span>Xuất CSV</span>
       </button>
-      <button class="floating-pill-control floating-pill-btn primary" id="btnRunBenchmark" onclick="startBenchmarkRun()">
-        <svg id="runIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <button class="btn-pill-primary" onclick="runBenchmarkNow()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polygon points="5 3 19 12 5 21 5 3"></polygon>
         </svg>
-        <span id="runLabel">Chạy Benchmark</span>
+        <span>Chạy Benchmark</span>
       </button>
     </div>
   </div>
@@ -1320,14 +1627,6 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
   <div class="workspace-shell">
     <aside class="sidebar">
       <div>
-        <div class="sidebar-brand">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-            <polyline points="2 17 12 22 22 17"></polyline>
-            <polyline points="2 12 12 17 22 12"></polyline>
-          </svg>
-          <span>Benchmark</span>
-        </div>
         <div class="sidebar-section-label">Menu</div>
         <ul class="nav-list">
           <li>
@@ -1367,16 +1666,6 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
 
       <section class="view-panel active" id="panel-overview">
         <h1 class="hero-head">Kết quả Đánh giá</h1>
-
-        <div id="progressCard" class="utility-card" style="display:none; padding:16px 20px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <span id="progressText" style="font-weight:600; font-size:14px; color:var(--ink);">Đang chuẩn bị...</span>
-            <span id="progressPercent" style="font-weight:600; font-size:14px; color:var(--primary);">0%</span>
-          </div>
-          <div style="width:100%; height:8px; background:var(--canvas-parchment); border-radius:999px; overflow:hidden;">
-            <div id="progressBar" style="width:0%; height:100%; background:var(--primary); transition:width 0.25s ease;"></div>
-          </div>
-        </div>
 
         <div class="kpi-grid">
           <div class="kpi-card">
@@ -1424,19 +1713,17 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
             <thead>
               <tr>
                 <th>Model</th>
-                <th>Split</th>
-                <th>Số mẫu</th>
-                <th>Loss</th>
+                <th>Epoch</th>
+                <th>Val Loss</th>
                 <th>Acc@0 (%)</th>
                 <th>6-Aspect F1 (%)</th>
                 <th>Macro-MAE</th>
                 <th>Rationale F1 (%)</th>
                 <th>Leakage (%)</th>
-                <th>Thời gian</th>
               </tr>
             </thead>
             <tbody id="summaryTableBody">
-              <tr><td colspan="10" style="color:var(--ink-muted-48); text-align:center;">Chưa có kết quả. Chọn model, split và bấm 'Chạy Benchmark' để bắt đầu đánh giá.</td></tr>
+              <tr><td colspan="8" style="color:var(--ink-muted-48);">Không có</td></tr>
             </tbody>
           </table>
         </div>
@@ -1452,7 +1739,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
           <textarea id="reviewInput" class="review-textarea" placeholder="Nhập review tại đây..."></textarea>
           <div style="display:flex;gap:12px;">
             <button class="btn-pill-primary" onclick="runLivePrediction()">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
               <span>Chạy thử</span>
             </button>
             <button class="btn-pill-secondary" onclick="copyStructuredText()">
@@ -1475,18 +1762,12 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
 
   <script>
     let currentModel = "";
-    let pollInterval = null;
 
     function switchTab(tabName) {
       document.querySelectorAll(".view-panel").forEach(el => el.classList.remove("active"));
       document.querySelectorAll(".nav-item").forEach(el => el.classList.remove("active"));
       document.getElementById("panel-" + tabName).classList.add("active");
       document.getElementById("nav-" + tabName).classList.add("active");
-
-      const grp = document.getElementById("benchmarkActionGroup");
-      if (grp) {
-        grp.style.display = (tabName === "overview") ? "inline-flex" : "none";
-      }
     }
 
     async function refreshModelList() {
@@ -1497,9 +1778,10 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       if (!data.models || data.models.length === 0) {
         const opt = document.createElement("option");
         opt.value = "";
-        opt.textContent = "Không có model";
+        opt.textContent = "Không có";
         sel.appendChild(opt);
         currentModel = "";
+        document.getElementById("navModelStatus").textContent = "Model: Không có";
         document.getElementById("sidebarModelMeta").textContent = "Không có";
       } else {
         data.models.forEach(m => {
@@ -1509,124 +1791,62 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
           sel.appendChild(opt);
         });
         currentModel = sel.value;
+        document.getElementById("navModelStatus").textContent = `Model: model/${currentModel}`;
         document.getElementById("sidebarModelMeta").textContent = data.models.map(x => x.filename).join(", ");
       }
-      resetResultsDisplay();
+      await runBenchmarkNow();
     }
 
-    function onModelChange() {
+    async function onModelChange() {
       const sel = document.getElementById("modelSelect");
       currentModel = sel.value;
-      resetResultsDisplay();
+      document.getElementById("navModelStatus").textContent = currentModel ? `Model: model/${currentModel}` : "Model: Không có";
+      await runBenchmarkNow();
     }
 
-    function resetResultsDisplay() {
-      document.getElementById("kpiAcc0").textContent = "--";
-      document.getElementById("kpiAspectF1").textContent = "--";
-      document.getElementById("kpiMae").textContent = "--";
-      document.getElementById("kpiLeakage").textContent = "--";
-      document.getElementById("summaryTableBody").innerHTML =
-        `<tr><td colspan="10" style="color:var(--ink-muted-48); text-align:center;">Chưa có kết quả. Chọn model, split và bấm 'Chạy Benchmark' để bắt đầu đánh giá.</td></tr>`;
-      document.getElementById("progressCard").style.display = "none";
-    }
-
-    async function startBenchmarkRun() {
+    async function runBenchmarkNow() {
+      const tbody = document.getElementById("summaryTableBody");
       if (!currentModel) {
-        alert("Vui lòng chọn một mô hình trước khi chạy!");
+        document.getElementById("kpiAcc0").textContent = "--";
+        document.getElementById("kpiAspectF1").textContent = "--";
+        document.getElementById("kpiMae").textContent = "--";
+        document.getElementById("kpiLeakage").textContent = "--";
+        tbody.innerHTML = `<tr><td colspan="8" style="color:var(--ink-muted-48);">Không có</td></tr>`;
         return;
       }
 
-      const split = document.getElementById("splitSelect").value;
-      const samples = document.getElementById("sampleSelect").value;
+      const res = await fetch(`/api/benchmark?model=${encodeURIComponent(currentModel)}`);
+      const data = await res.json();
 
-      const btn = document.getElementById("btnRunBenchmark");
-      btn.disabled = true;
-      btn.style.opacity = "0.6";
-      btn.style.cursor = "not-allowed";
-      document.getElementById("runLabel").textContent = "Đang đánh giá...";
-
-      const pCard = document.getElementById("progressCard");
-      pCard.style.display = "block";
-      document.getElementById("progressBar").style.width = "5%";
-      document.getElementById("progressPercent").textContent = "5%";
-      document.getElementById("progressText").textContent = "Đang khởi tạo...";
-
-      try {
-        const res = await fetch("/api/benchmark/start", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model: currentModel, split: split, samples: samples })
-        });
-        const startData = await res.json();
-        if (!startData.ok) {
-          alert(startData.error || "Không thể khởi chạy benchmark.");
-          resetRunButton();
-          return;
-        }
-
-        if (pollInterval) clearInterval(pollInterval);
-        pollInterval = setInterval(checkBenchmarkStatus, 500);
-      } catch (err) {
-        alert("Lỗi khi kết nối tới máy chủ: " + err);
-        resetRunButton();
+      if (!data.has_model || !data.metrics) {
+        document.getElementById("kpiAcc0").textContent = "--";
+        document.getElementById("kpiAspectF1").textContent = "--";
+        document.getElementById("kpiMae").textContent = "--";
+        document.getElementById("kpiLeakage").textContent = "--";
+        tbody.innerHTML = `<tr><td colspan="8" style="color:var(--ink-muted-48);">${data.message || "Không có"}</td></tr>`;
+        return;
       }
-    }
 
-    async function checkBenchmarkStatus() {
-      try {
-        const res = await fetch("/api/benchmark/status");
-        const st = await res.json();
+      document.getElementById("kpiAcc0").textContent = data.metrics.acc_at_0.toFixed(2) + "%";
+      document.getElementById("kpiAspectF1").textContent = data.metrics.aspect_macro_f1.toFixed(2) + "%";
+      document.getElementById("kpiMae").textContent = data.metrics.macro_mae.toFixed(4);
+      document.getElementById("kpiLeakage").textContent = data.metrics.leakage_rate.toFixed(2) + "%";
 
-        document.getElementById("progressBar").style.width = `${st.progress_pct}%`;
-        document.getElementById("progressPercent").textContent = `${st.progress_pct}%`;
-        document.getElementById("progressText").textContent = st.message || "";
-
-        if (st.error) {
-          clearInterval(pollInterval);
-          pollInterval = null;
-          alert("Quá trình đánh giá gặp lỗi: " + st.error);
-          resetRunButton();
-          return;
-        }
-
-        if (!st.running && st.latest_result) {
-          clearInterval(pollInterval);
-          pollInterval = null;
-          resetRunButton();
-
-          const r = st.latest_result.metrics;
-          document.getElementById("kpiAcc0").textContent = r.acc_at_0.toFixed(2) + "%";
-          document.getElementById("kpiAspectF1").textContent = r.aspect_macro_f1.toFixed(2) + "%";
-          document.getElementById("kpiMae").textContent = r.macro_mae.toFixed(4);
-          document.getElementById("kpiLeakage").textContent = r.leakage_rate.toFixed(2) + "%";
-
-          const tbody = document.getElementById("summaryTableBody");
-          tbody.innerHTML = `
-            <tr>
-              <td><strong>${r.model}</strong></td>
-              <td><span style="display:inline-block;padding:2px 8px;border-radius:999px;background:var(--canvas-parchment);font-weight:600;font-size:12px;">${r.split}</span></td>
-              <td>${r.samples}</td>
-              <td>${r.val_loss}</td>
-              <td>${r.acc_at_0.toFixed(2)}%</td>
-              <td>${r.aspect_macro_f1.toFixed(2)}%</td>
-              <td>${r.macro_mae.toFixed(4)}</td>
-              <td>${r.rationale_f1.toFixed(2)}%</td>
-              <td>${r.leakage_rate.toFixed(2)}%</td>
-              <td>${r.elapsed}</td>
-            </tr>
-          `;
-        }
-      } catch (e) {
-        console.error("Polling error:", e);
-      }
-    }
-
-    function resetRunButton() {
-      const btn = document.getElementById("btnRunBenchmark");
-      btn.disabled = false;
-      btn.style.opacity = "1";
-      btn.style.cursor = "pointer";
-      document.getElementById("runLabel").textContent = "Chạy Benchmark";
+      tbody.innerHTML = "";
+      data.rows.forEach(r => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><strong>${r.model}</strong></td>
+          <td>${r.epoch}</td>
+          <td>${r.val_loss}</td>
+          <td>${r.acc_at_0.toFixed(2)}%</td>
+          <td>${r.aspect_macro_f1.toFixed(2)}%</td>
+          <td>${r.macro_mae.toFixed(4)}</td>
+          <td>${r.rationale_f1.toFixed(2)}%</td>
+          <td>${r.leakage_rate.toFixed(2)}%</td>
+        `;
+        tbody.appendChild(tr);
+      });
     }
 
     function exportCSV() {
@@ -1696,8 +1916,9 @@ class BenchmarkGUIHandler(BaseHTTPRequestHandler):
             self._send_json({"models": scan_available_models()})
             return
 
-        if parsed.path == "/api/benchmark/status":
-            self._send_json(BENCHMARK_STATE)
+        if parsed.path == "/api/benchmark":
+            model_name = qs.get("model", [""])[0]
+            self._send_json(get_benchmark_data(model_name))
             return
 
         if parsed.path == "/api/export_csv":
@@ -1716,27 +1937,6 @@ class BenchmarkGUIHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-
-        if parsed.path == "/api/benchmark/start":
-            if BENCHMARK_STATE.get("running"):
-                self._send_json({"ok": False, "error": "Đang có tiến trình đánh giá chạy!"})
-                return
-            length = int(self.headers.get("Content-Length", 0))
-            body_raw = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
-            payload = json.loads(body_raw)
-            model_name = payload.get("model", "")
-            split = payload.get("split", "test")
-            samples = payload.get("samples", "all")
-
-            worker_thread = threading.Thread(
-                target=run_dataset_evaluation_worker,
-                args=(model_name, split, samples),
-                daemon=True
-            )
-            worker_thread.start()
-            self._send_json({"ok": True, "message": "Đã bắt đầu đánh giá."})
-            return
-
         if parsed.path == "/api/predict":
             length = int(self.headers.get("Content-Length", 0))
             body_raw = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
@@ -1773,7 +1973,7 @@ def main():
     try:
         import webview
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        webview.create_window("Benchmark", url, width=1320, height=840)
+        webview.create_window("CRAM-ABSA Benchmark", url, width=1320, height=840)
         webview.start()
     except Exception:
         threading.Timer(0.4, lambda: webbrowser.open(url)).start()
