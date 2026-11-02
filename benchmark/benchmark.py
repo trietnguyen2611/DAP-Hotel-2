@@ -36,11 +36,27 @@ except ImportError:
 try:
     import nltk
     from nltk.stem import WordNetLemmatizer
+    for _pkg in ("wordnet", "omw-1.4", "stopwords"):
+        try:
+            nltk.data.find(f"corpora/{_pkg}")
+        except LookupError:
+            try:
+                nltk.download(_pkg, quiet=True)
+            except Exception:
+                pass
     NLTK_LEMMATIZER = WordNetLemmatizer()
+    _ = NLTK_LEMMATIZER.lemmatize("rooms")
     def lemmatize_word(w: str) -> str:
-        return NLTK_LEMMATIZER.lemmatize(w)
+        try:
+            return NLTK_LEMMATIZER.lemmatize(w)
+        except Exception:
+            return w[:-1] if (len(w) > 3 and w.endswith("s") and not w.endswith("ss")) else w
 except Exception:
     def lemmatize_word(w: str) -> str:
+        if len(w) > 4 and w.endswith("ies"):
+            return w[:-3] + "y"
+        if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+            return w[:-1]
         return w
 
 CANONICAL_ASPECTS = ["Service", "Facility", "Experience", "Amenity", "Loyalty", "Branding"]
