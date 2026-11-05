@@ -47,3 +47,5 @@ env/
 .env.*
 
 model/
+.agents/
+graphify-out
