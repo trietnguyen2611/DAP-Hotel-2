@@ -1030,27 +1030,6 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       min-height: 100vh;
     }
 
-    .global-nav {
-      height: 44px;
-      background-color: var(--surface-black);
-      color: var(--body-on-dark);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 24px;
-      font-size: 12px;
-      letter-spacing: -0.12px;
-    }
-
-    .global-nav-brand {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--body-on-dark);
-      font-weight: 600;
-      text-decoration: none;
-    }
-
     .sub-nav-frosted {
       height: 52px;
       background-color: rgba(245, 245, 247, 0.82);
@@ -1324,18 +1303,6 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <header class="global-nav">
-    <a href="#" class="global-nav-brand">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-        <polyline points="2 17 12 22 22 17"></polyline>
-        <polyline points="2 12 12 17 22 12"></polyline>
-      </svg>
-      <span>CRAM-ABSA</span>
-    </a>
-    <span id="navStatus">Model Folder: model/</span>
-  </header>
-
   <div class="sub-nav-frosted">
     <div class="sub-nav-title">Benchmark</div>
     <div class="sub-nav-controls">
