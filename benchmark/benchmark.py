@@ -7,6 +7,7 @@ import sys
 import math
 import json
 import time
+import base64
 import socket
 import argparse
 import threading
@@ -198,10 +199,12 @@ AMBIGUOUS_HOTEL_TERMS = {
     "light", "heavy", "old", "dark", "basic", "quiet", "plain", "rich", "fair", "fine"
 }
 
-MODEL_EXTENSIONS = {".pt", ".pth", ".bin", ".safetensors"}
+MODEL_EXTENSIONS = {".pt", ".pth", ".bin", ".safetensors", ".ckpt"}
 MAX_CACHED_MODELS = 2
 LOADED_MODEL_CACHE: Dict[str, Any] = {}
 CURRENT_MODEL_DIR: Optional[Path] = None
+CURRENT_SELECTED_MODEL_FILE: Optional[Path] = None
+SELECTED_MODEL_FILES: Dict[str, Path] = {}
 
 # In-memory accumulated benchmark table across the session (keyed by display_id e.g. "model lần 1/modelv1.pt")
 BENCHMARK_HISTORY: Dict[str, Dict[str, Any]] = {}
@@ -245,6 +248,10 @@ def cached_lemmatize(w: str) -> str:
     return res
 
 
+def get_repo_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
 def get_default_model_dir() -> Path:
     cwd_model = Path.cwd() / "model"
     script_model = Path(__file__).resolve().parent / "model"
@@ -273,6 +280,7 @@ def set_model_dir(dir_path_str: str) -> Tuple[bool, str, Path]:
     else:
         p = p.resolve()
     if p.is_file():
+        set_selected_model_file(str(p))
         p = p.parent
     if not p.exists() or not p.is_dir():
         return False, f"Thư mục không tồn tại: {p}", get_model_dir()
@@ -280,7 +288,56 @@ def set_model_dir(dir_path_str: str) -> Tuple[bool, str, Path]:
     return True, "OK", CURRENT_MODEL_DIR
 
 
-def choose_directory_dialog() -> Optional[str]:
+def compute_model_display_id(file_path: Path, base_dir: Optional[Path] = None) -> str:
+    """
+    Return the model filename (e.g. 'modelv1.pt', 'modelmethod1.pt').
+    """
+    return file_path.resolve().name
+
+
+def get_model_file_info(file_path: Path) -> Dict[str, Any]:
+    resolved = file_path.resolve()
+    abs_s = resolved.as_posix()
+    display_id = compute_model_display_id(resolved)
+    stat = resolved.stat()
+    size_mb = stat.st_size / (1024 * 1024)
+    size_label = f"{size_mb:.2f} MB" if size_mb >= 0.1 else f"{max(1, int(stat.st_size / 1024))} KB"
+    return {
+        "filename": abs_s,
+        "name": resolved.name,
+        "display_id": display_id,
+        "abs_path": abs_s,
+        "size_label": size_label
+    }
+
+
+def set_selected_model_file(file_path_str: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+    global CURRENT_SELECTED_MODEL_FILE, CURRENT_MODEL_DIR
+    cleaned = str(file_path_str or "").strip().strip('"').strip("'")
+    if not cleaned:
+        return False, "Vui lòng chọn file model.", None
+    p = Path(cleaned).expanduser()
+    if not p.is_absolute():
+        p = (Path.cwd() / p).resolve()
+    else:
+        p = p.resolve()
+    if not p.exists() or not p.is_file():
+        return False, f"File model không tồn tại: {p}", None
+    if p.suffix.lower() not in MODEL_EXTENSIONS:
+        return (
+            False,
+            f"File '{p.name}' không đúng định dạng model ({', '.join(sorted(MODEL_EXTENSIONS))}).",
+            None
+        )
+    CURRENT_SELECTED_MODEL_FILE = p
+    CURRENT_MODEL_DIR = p.parent
+    info = get_model_file_info(p)
+    SELECTED_MODEL_FILES[info["abs_path"]] = p
+    SELECTED_MODEL_FILES[info["display_id"]] = p
+    return True, "OK", info
+
+
+def choose_model_file_dialog() -> Optional[str]:
     initial_dir = str(get_model_dir()) if get_model_dir().exists() else str(Path.cwd())
     if sys.platform == "darwin":
         try:
@@ -289,9 +346,98 @@ def choose_directory_dialog() -> Optional[str]:
             script = (
                 f'try\n'
                 f'  set defaultDir to POSIX file "{escaped_dir}" as alias\n'
-                f'  set chosenFolder to choose folder with prompt "Chọn thư mục chứa model:" default location defaultDir\n'
+                f'  set chosenFile to choose file with prompt "Chọn file model (.pt, .pth, .bin, .safetensors, .ckpt):" default location defaultDir\n'
                 f'on error\n'
-                f'  set chosenFolder to choose folder with prompt "Chọn thư mục chứa model:"\n'
+                f'  set chosenFile to choose file with prompt "Chọn file model (.pt, .pth, .bin, .safetensors, .ckpt):"\n'
+                f'end try\n'
+                f'POSIX path of chosenFile'
+            )
+            proc = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=120)
+            if proc.returncode == 0 and proc.stdout.strip():
+                return proc.stdout.strip()
+            return None
+        except Exception:
+            pass
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        selected = filedialog.askopenfilename(
+            initialdir=initial_dir,
+            title="Chọn file model",
+            filetypes=[("Model files", "*.pt *.pth *.bin *.safetensors *.ckpt"), ("All files", "*.*")]
+        )
+        root.destroy()
+        if selected:
+            return str(selected)
+    except Exception:
+        pass
+    return None
+
+
+def choose_save_file_dialog(default_name: str = "benchmark_chart.png") -> Optional[str]:
+    initial_dir = str(get_repo_root())
+    if sys.platform == "darwin":
+        try:
+            import subprocess
+            escaped_dir = initial_dir.replace('"', '\\"')
+            escaped_name = default_name.replace('"', '\\"')
+            script = (
+                f'try\n'
+                f'  set defaultDir to POSIX file "{escaped_dir}" as alias\n'
+                f'  set chosenFile to choose file name with prompt "Chọn vị trí lưu hình ảnh (.png):" default name "{escaped_name}" default location defaultDir\n'
+                f'on error\n'
+                f'  set chosenFile to choose file name with prompt "Chọn vị trí lưu hình ảnh (.png):" default name "{escaped_name}"\n'
+                f'end try\n'
+                f'POSIX path of chosenFile'
+            )
+            proc = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=120)
+            if proc.returncode == 0 and proc.stdout.strip():
+                out_path = proc.stdout.strip()
+                if not out_path.lower().endswith(".png"):
+                    out_path += ".png"
+                return out_path
+            return None
+        except Exception:
+            pass
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        selected = filedialog.asksaveasfilename(
+            initialdir=initial_dir,
+            initialfile=default_name,
+            defaultextension=".png",
+            title="Chọn vị trí lưu hình ảnh",
+            filetypes=[("PNG Image", "*.png"), ("All files", "*.*")]
+        )
+        root.destroy()
+        if selected:
+            out_path = str(selected)
+            if not out_path.lower().endswith(".png"):
+                out_path += ".png"
+            return out_path
+    except Exception:
+        pass
+    return None
+
+
+def choose_save_directory_dialog() -> Optional[str]:
+    initial_dir = str(get_repo_root())
+    if sys.platform == "darwin":
+        try:
+            import subprocess
+            escaped_dir = initial_dir.replace('"', '\\"')
+            script = (
+                f'try\n'
+                f'  set defaultDir to POSIX file "{escaped_dir}" as alias\n'
+                f'  set chosenFolder to choose folder with prompt "Chọn thư mục lưu hình ảnh Visualization:" default location defaultDir\n'
+                f'on error\n'
+                f'  set chosenFolder to choose folder with prompt "Chọn thư mục lưu hình ảnh Visualization:"\n'
                 f'end try\n'
                 f'POSIX path of chosenFolder'
             )
@@ -307,7 +453,7 @@ def choose_directory_dialog() -> Optional[str]:
         root = tk.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
-        selected = filedialog.askdirectory(initialdir=initial_dir, title="Chọn thư mục chứa model")
+        selected = filedialog.askdirectory(initialdir=initial_dir, title="Chọn thư mục lưu hình ảnh Visualization")
         root.destroy()
         if selected:
             return str(selected)
@@ -316,68 +462,38 @@ def choose_directory_dialog() -> Optional[str]:
     return None
 
 
-def compute_model_display_id(file_path: Path, base_dir: Path) -> str:
-    """
-    Format model identifier as '<Folder Name>/<Filename>', e.g. 'model lần 1/modelv1.pt' or 'model lần 2/modelv1.pt'.
-    """
-    parent = file_path.parent
-    if parent.name.lower() in ("modelv1", "method", "models", "checkpoints", "weights") and parent.parent.name and parent.parent.name.lower() != "model":
-        folder_label = parent.parent.name
-    elif parent != base_dir and base_dir.name.lower() == "model":
-        try:
-            rel_parts = file_path.relative_to(base_dir).parts
-            folder_label = rel_parts[0] if len(rel_parts) > 1 else base_dir.name
-        except Exception:
-            folder_label = parent.name
+def save_data_url_png(data_url: str, target_path: Path) -> None:
+    if "," in data_url:
+        b64_part = data_url.split(",", 1)[1]
     else:
-        folder_label = base_dir.name or parent.name
-    return f"{folder_label}/{file_path.name}"
-
-
-def scan_available_models() -> List[Dict[str, Any]]:
-    model_dir = get_model_dir()
-    if not model_dir.exists() or not model_dir.is_dir():
-        return []
-    models_found = []
-    seen_paths = set()
-    for p in sorted(model_dir.rglob("*"), key=lambda x: str(x).lower()):
-        if p.is_file() and p.suffix.lower() in MODEL_EXTENSIONS:
-            abs_s = str(p.resolve())
-            if abs_s in seen_paths:
-                continue
-            seen_paths.add(abs_s)
-            stat = p.stat()
-            size_mb = stat.st_size / (1024 * 1024)
-            size_label = f"{size_mb:.2f} MB" if size_mb >= 0.1 else f"{max(1, int(stat.st_size / 1024))} KB"
-            try:
-                rel_key = p.relative_to(model_dir).as_posix()
-            except Exception:
-                rel_key = p.name
-            display_id = compute_model_display_id(p, model_dir)
-            models_found.append({
-                "filename": rel_key,
-                "name": p.name,
-                "display_id": display_id,
-                "abs_path": abs_s,
-                "size_label": size_label
-            })
-    return models_found
+        b64_part = data_url
+    raw_bytes = base64.b64decode(b64_part)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_bytes(raw_bytes)
 
 
 def resolve_model_file(model_key: str) -> Optional[Path]:
-    if not model_key:
+    cleaned = str(model_key or "").strip()
+    if not cleaned:
+        if CURRENT_SELECTED_MODEL_FILE is not None and CURRENT_SELECTED_MODEL_FILE.is_file():
+            return CURRENT_SELECTED_MODEL_FILE
         return None
+
+    if cleaned in SELECTED_MODEL_FILES:
+        cand = SELECTED_MODEL_FILES[cleaned]
+        if cand.is_file():
+            return cand
+
+    repo_root = get_repo_root().resolve()
     model_dir = get_model_dir().resolve()
-    try:
-        direct = (model_dir / model_key).resolve()
-        is_inside = direct.is_relative_to(model_dir) if hasattr(direct, "is_relative_to") else str(direct).startswith(str(model_dir))
-        if is_inside and direct.is_file() and direct.suffix.lower() in MODEL_EXTENSIONS:
-            return direct
-    except Exception:
-        pass
-    for m in scan_available_models():
-        if m["filename"] == model_key or m["display_id"] == model_key or m["name"] == model_key:
-            return Path(m["abs_path"])
+    for base in (repo_root, model_dir):
+        try:
+            direct = (base / cleaned).resolve()
+            is_inside = direct.is_relative_to(base) if hasattr(direct, "is_relative_to") else str(direct).startswith(str(base))
+            if is_inside and direct.is_file() and direct.suffix.lower() in MODEL_EXTENSIONS:
+                return direct
+        except Exception:
+            pass
     return None
 
 
@@ -1694,8 +1810,9 @@ def _benchmark_worker(model_key: str, model_path: Path, display_id: str):
             fixed_model_path=model_path,
             fixed_display_id=display_id
         )
+        history_key = model_path.resolve().as_posix()
         with BENCHMARK_LOCK:
-            BENCHMARK_HISTORY[res["model"]] = res
+            BENCHMARK_HISTORY[history_key] = res
             BENCHMARK_STATE["progress"] = 100.0
             BENCHMARK_STATE["message"] = f"Đã hoàn tất đánh giá tập test cho {res['model']}."
             BENCHMARK_STATE["result"] = res
@@ -1708,11 +1825,9 @@ def _benchmark_worker(model_key: str, model_path: Path, display_id: str):
 
 
 def start_benchmark_async(model_key: str) -> Tuple[bool, str]:
-    if not model_key:
-        return False, "Vui lòng chọn mô hình trước khi chạy Benchmark."
     model_path = resolve_model_file(model_key)
     if model_path is None or not model_path.exists():
-        return False, f"Không tìm thấy mô hình: {model_key}"
+        return False, "Vui lòng bấm 'Chọn File Model' để chọn một file mô hình hợp lệ trước khi chạy Benchmark."
 
     display_id = compute_model_display_id(model_path, get_model_dir())
     with BENCHMARK_LOCK:
@@ -1725,25 +1840,33 @@ def start_benchmark_async(model_key: str) -> Tuple[bool, str]:
         BENCHMARK_STATE["result"] = None
         BENCHMARK_STATE["error"] = None
 
-    t = threading.Thread(target=_benchmark_worker, args=(model_key, model_path, display_id), daemon=True)
+    t = threading.Thread(target=_benchmark_worker, args=(str(model_path), model_path, display_id), daemon=True)
     t.start()
     return True, "OK"
 
 
 def get_benchmark_data(selected_model_key: str) -> Dict[str, Any]:
     cur_dir = get_model_dir()
-    models = scan_available_models()
-    selected_display_id = ""
-    if selected_model_key:
-        mp = resolve_model_file(selected_model_key)
-        if mp is not None:
-            selected_display_id = compute_model_display_id(mp, cur_dir)
+    mp = resolve_model_file(selected_model_key)
+    selected_info = get_model_file_info(mp) if (mp is not None and mp.is_file()) else None
+    selected_display_id = selected_info["display_id"] if selected_info else ""
+    selected_abs_key = selected_info["abs_path"] if selected_info else ""
 
     with BENCHMARK_LOCK:
         all_rows = list(BENCHMARK_HISTORY.values())
 
     selected_metrics = None
-    if selected_display_id and selected_display_id in BENCHMARK_HISTORY:
+    if selected_abs_key and selected_abs_key in BENCHMARK_HISTORY:
+        r = BENCHMARK_HISTORY[selected_abs_key]
+        selected_metrics = {
+            "acc_at_0": r["acc_at_0"],
+            "aspect_macro_f1": r["aspect_macro_f1"],
+            "macro_mae": r["macro_mae"],
+            "rationale_f1": r["rationale_f1"],
+            "leakage_rate": r["leakage_rate"],
+            "val_loss": r["val_loss"]
+        }
+    elif selected_display_id and selected_display_id in BENCHMARK_HISTORY:
         r = BENCHMARK_HISTORY[selected_display_id]
         selected_metrics = {
             "acc_at_0": r["acc_at_0"],
@@ -1765,12 +1888,13 @@ def get_benchmark_data(selected_model_key: str) -> Dict[str, Any]:
         }
 
     return {
-        "has_model": len(models) > 0,
-        "selected_model": selected_model_key,
+        "has_model": selected_info is not None,
+        "selected_model": selected_info["abs_path"] if selected_info else "",
         "selected_display_id": selected_display_id,
+        "selected_model_info": selected_info,
         "model_dir": str(cur_dir),
         "folder_name": cur_dir.name,
-        "message": "Chưa có mô hình nào chạy Benchmark. Hãy chọn model và bấm 'Chạy Benchmark'." if not all_rows else "OK",
+        "message": "Chưa có mô hình nào chạy Benchmark. Hãy bấm 'Chọn File Model' rồi bấm 'Chạy Benchmark'." if not all_rows else "OK",
         "metrics": selected_metrics,
         "rows": all_rows
     }
@@ -1964,10 +2088,11 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       --surface-tile-1: #272729;
       --surface-black: #000000;
       --rounded-md: 11px;
-      --rounded-lg: 18px;
+      --rounded-lg: 16px;
       --rounded-pill: 9999px;
       --font-display: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
       --font-text: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+      --font-mono: "SF Mono", "Menlo", "Monaco", monospace;
     }
 
     * {
@@ -1977,68 +2102,56 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       -webkit-font-smoothing: antialiased;
     }
 
-    body {
+    html, body {
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
       font-family: var(--font-text);
-      font-size: 17px;
+      font-size: 16px;
       font-weight: 400;
       line-height: 1.47;
-      letter-spacing: -0.374px;
+      letter-spacing: -0.3px;
       color: var(--ink);
       background-color: var(--canvas-parchment);
-      display: flex;
-      flex-direction: column;
-      min-height: 100vh;
-    }
-
-    .sub-nav-frosted {
-      height: 52px;
-      background-color: rgba(245, 245, 247, 0.82);
-      backdrop-filter: saturate(180%) blur(20px);
-      -webkit-backdrop-filter: saturate(180%) blur(20px);
-      border-bottom: 1px solid var(--hairline);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 24px;
-    }
-
-    .sub-nav-title {
-      font-family: var(--font-display);
-      font-size: 21px;
-      font-weight: 600;
-      letter-spacing: 0.231px;
-    }
-
-    .sub-nav-controls {
-      display: flex;
-      align-items: center;
-      gap: 10px;
     }
 
     .workspace-shell {
       display: flex;
-      flex: 1;
-      max-width: 1440px;
-      width: 100%;
-      margin: 0 auto;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
     }
 
     .sidebar {
-      width: 240px;
+      width: 248px;
+      height: 100vh;
       background-color: var(--canvas-parchment);
       border-right: 1px solid var(--hairline);
-      padding: 24px 16px;
+      padding: 22px 16px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
       flex-shrink: 0;
+      overflow-y: auto;
+    }
+
+    .sidebar-brand {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--ink);
+      padding: 0 12px 18px;
+      border-bottom: 1px solid var(--hairline);
+      margin-bottom: 16px;
+      letter-spacing: -0.2px;
     }
 
     .sidebar-section-label {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--ink-muted-48);
       text-transform: uppercase;
+      letter-spacing: 0.5px;
       padding: 0 12px 8px;
     }
 
@@ -2046,7 +2159,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       list-style: none;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 6px;
     }
 
     .nav-item {
@@ -2063,12 +2176,18 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       font-size: 14px;
       cursor: pointer;
       text-align: left;
+      transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .nav-item:hover {
+      background-color: rgba(0, 0, 0, 0.04);
     }
 
     .nav-item svg {
       width: 18px;
       height: 18px;
       color: var(--ink-muted-48);
+      flex-shrink: 0;
     }
 
     .nav-item.active {
@@ -2076,6 +2195,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       color: var(--primary);
       font-weight: 600;
       border-color: var(--hairline);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
     }
 
     .nav-item.active svg {
@@ -2084,57 +2204,87 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
 
     .main-stage {
       flex: 1;
-      padding: 32px 40px;
+      height: 100vh;
+      min-width: 0;
+      padding: 20px 28px;
       display: flex;
       flex-direction: column;
-      gap: 24px;
-    }
-
-    .view-panel {
-      display: none;
-      flex-direction: column;
-      gap: 24px;
-    }
-
-    .view-panel.active {
-      display: flex;
+      gap: 16px;
+      overflow: hidden;
     }
 
     .control-bar {
       background: var(--canvas);
       border: 1px solid var(--hairline);
       border-radius: var(--rounded-lg);
-      padding: 18px 24px;
+      padding: 14px 18px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
+      gap: 14px;
+      flex-shrink: 0;
     }
 
-    .control-group {
+    .control-file-area {
       display: flex;
       align-items: center;
       gap: 12px;
-      flex-wrap: wrap;
+      flex: 1;
+      min-width: 0;
     }
 
-    .control-label {
-      font-size: 14px;
-      font-weight: 600;
-    }
-
-    .apple-select {
-      font-family: var(--font-text);
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--ink);
+    .file-path-box {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
       background-color: var(--surface-pearl);
       border: 1px solid var(--hairline);
       border-radius: var(--rounded-md);
-      padding: 9px 14px;
-      min-width: 280px;
-      outline: none;
+      padding: 8px 14px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--ink);
+      overflow: hidden;
+    }
+
+    .file-path-text {
+      white-space: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .file-path-text::-webkit-scrollbar {
+      display: none;
+    }
+
+    .file-path-text.placeholder {
+      font-family: var(--font-text);
+      color: var(--ink-muted-48);
+      font-weight: 400;
+    }
+
+    .file-size-badge {
+      flex-shrink: 0;
+      font-family: var(--font-text);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--primary);
+      background: rgba(0, 102, 204, 0.09);
+      padding: 2px 8px;
+      border-radius: var(--rounded-pill);
+      display: none;
+    }
+
+    .control-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
     }
 
     .btn {
@@ -2144,11 +2294,13 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       font-family: var(--font-text);
       font-size: 14px;
       font-weight: 600;
-      padding: 9px 18px;
+      padding: 9px 16px;
       border-radius: var(--rounded-pill);
       cursor: pointer;
       text-decoration: none;
       border: 1px solid transparent;
+      white-space: nowrap;
+      transition: opacity 0.15s ease, background-color 0.15s ease;
     }
 
     .btn:disabled {
@@ -2159,6 +2311,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
     .btn svg {
       width: 16px;
       height: 16px;
+      flex-shrink: 0;
     }
 
     .btn-primary {
@@ -2167,7 +2320,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
     }
 
     .btn-outline {
-      background-color: transparent;
+      background-color: var(--canvas);
       color: var(--primary);
       border-color: var(--primary);
     }
@@ -2177,9 +2330,10 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       background-color: var(--canvas);
       border: 1px solid var(--hairline);
       border-radius: var(--rounded-lg);
-      padding: 16px 22px;
+      padding: 12px 18px;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
+      flex-shrink: 0;
     }
 
     .progress-banner.active {
@@ -2190,13 +2344,13 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       display: flex;
       align-items: center;
       justify-content: space-between;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
     }
 
     .progress-track {
       width: 100%;
-      height: 8px;
+      height: 7px;
       background-color: var(--canvas-parchment);
       border-radius: var(--rounded-pill);
       overflow: hidden;
@@ -2209,20 +2363,35 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       transition: width 0.25s ease;
     }
 
+    .view-panel {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .view-panel.active {
+      display: flex;
+    }
+
     .kpi-grid {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
-      gap: 14px;
+      gap: 12px;
+      flex-shrink: 0;
     }
 
     .kpi-card {
       background-color: var(--surface-tile-1);
       color: var(--body-on-dark);
       border-radius: var(--rounded-lg);
-      padding: 18px 20px;
+      padding: 15px 18px;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 4px;
     }
 
     .kpi-label {
@@ -2233,7 +2402,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
 
     .kpi-value {
       font-family: var(--font-display);
-      font-size: 26px;
+      font-size: 24px;
       font-weight: 600;
     }
 
@@ -2241,14 +2410,30 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       background-color: var(--canvas);
       border: 1px solid var(--hairline);
       border-radius: var(--rounded-lg);
-      padding: 24px;
+      padding: 20px 22px;
+    }
+
+    .card-surface.table-card {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .table-scroll-container {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: auto;
     }
 
     .card-title {
       font-family: var(--font-display);
-      font-size: 19px;
+      font-size: 18px;
       font-weight: 600;
-      margin-bottom: 16px;
+      margin-bottom: 12px;
+      flex-shrink: 0;
     }
 
     .apple-table {
@@ -2258,30 +2443,41 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
     }
 
     .apple-table th {
+      position: sticky;
+      top: 0;
+      background-color: var(--canvas);
       text-align: left;
       font-size: 12px;
       font-weight: 600;
       color: var(--ink-muted-48);
       padding: 10px 12px;
       border-bottom: 1px solid var(--hairline);
+      z-index: 1;
     }
 
     .apple-table td {
-      padding: 14px 12px;
+      padding: 12px;
       border-bottom: 1px solid var(--divider-soft);
+    }
+
+    .model-path-cell {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
     }
 
     .apple-textarea {
       width: 100%;
-      min-height: 130px;
+      min-height: 115px;
       font-family: var(--font-text);
-      font-size: 16px;
+      font-size: 15px;
       line-height: 1.5;
       color: var(--ink);
       background-color: var(--surface-pearl);
       border: 1px solid var(--hairline);
       border-radius: var(--rounded-md);
-      padding: 14px 16px;
+      padding: 12px 14px;
       resize: vertical;
       outline: none;
     }
@@ -2295,34 +2491,140 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       background-color: var(--surface-tile-1);
       color: var(--body-on-dark);
       border-radius: var(--rounded-lg);
-      padding: 22px 24px;
-      font-family: "SF Mono", "Menlo", "Monaco", monospace;
-      font-size: 14px;
-      line-height: 1.75;
+      padding: 18px 20px;
+      font-family: var(--font-mono);
+      font-size: 13.5px;
+      line-height: 1.7;
       white-space: pre-wrap;
       word-break: break-word;
-      min-height: 210px;
+      min-height: 190px;
+    }
+
+    .metrics-guide-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+    }
+
+    .metric-guide-card {
+      background-color: var(--canvas);
+      border: 1px solid var(--hairline);
+      border-radius: var(--rounded-lg);
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .metric-guide-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .metric-guide-name {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .metric-direction {
+      font-size: 14px;
+      font-weight: 700;
+      padding: 2px 10px;
+      border-radius: var(--rounded-pill);
+      line-height: 1.2;
+    }
+
+    .metric-direction.up {
+      background-color: rgba(29, 131, 72, 0.12);
+      color: #196f3d;
+    }
+
+    .metric-direction.down {
+      background-color: rgba(0, 102, 204, 0.12);
+      color: var(--primary);
+    }
+
+    .metric-guide-desc {
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--ink-muted-80);
+    }
+
+    .viz-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background-color: var(--canvas);
+      border: 1px solid var(--hairline);
+      border-radius: var(--rounded-lg);
+      padding: 12px 18px;
+      flex-shrink: 0;
+    }
+
+    .viz-status-note {
+      font-size: 13.5px;
+      color: var(--ink-muted-80);
+    }
+
+    .viz-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+
+    .viz-card {
+      background-color: var(--canvas);
+      border: 1px solid var(--hairline);
+      border-radius: var(--rounded-lg);
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: relative;
+    }
+
+    .viz-card.full-width {
+      grid-column: 1 / -1;
+    }
+
+    .viz-card-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    .btn-sm {
+      font-size: 12.5px;
+      padding: 6px 12px;
+    }
+
+    .viz-canvas-wrap {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: #ffffff;
+      border-radius: var(--rounded-md);
+      overflow: hidden;
+    }
+
+    .viz-canvas {
+      width: 100%;
+      height: auto;
+      display: block;
     }
   </style>
 </head>
 <body>
-  <div class="sub-nav-frosted">
-    <div class="sub-nav-title">Benchmark</div>
-    <div class="sub-nav-controls">
-      <button class="btn btn-primary" onclick="exportCSV()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
-        </svg>
-        <span>Xuất CSV</span>
-      </button>
-    </div>
-  </div>
-
   <div class="workspace-shell">
     <aside class="sidebar">
       <div>
+        <div class="sidebar-brand">CRAM-ABSA Benchmark</div>
         <div class="sidebar-section-label">Menu</div>
         <ul class="nav-list">
           <li>
@@ -2336,11 +2638,30 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
             </button>
           </li>
           <li>
+            <button class="nav-item" id="nav-viz" onclick="switchTab('viz')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path>
+                <path d="M22 12A10 10 0 0 0 12 2v10z"></path>
+              </svg>
+              <span>Visualization</span>
+            </button>
+          </li>
+          <li>
             <button class="nav-item" id="nav-playground" onclick="switchTab('playground')">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
               </svg>
               <span>Chạy thử Model</span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item" id="nav-metrics" onclick="switchTab('metrics')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="16" x2="12" y2="12"></line>
+                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+              </svg>
+              <span>Ý Nghĩa Các Chỉ Số</span>
             </button>
           </li>
         </ul>
@@ -2349,22 +2670,33 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
 
     <main class="main-stage">
       <div class="control-bar">
-        <div class="control-group">
-          <button class="btn btn-outline" onclick="browseModelDir()">
+        <div class="control-file-area">
+          <button class="btn btn-outline" onclick="browseModelFile()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
             </svg>
-            <span>Mở thư mục</span>
+            <span>Chọn File Model</span>
           </button>
-          <span class="control-label">Model:</span>
-          <select id="modelSelect" class="apple-select" onchange="onModelChange()"></select>
+          <div class="file-path-box" id="selectedFilePathBox" title="Chưa chọn file model">
+            <span class="file-path-text placeholder" id="selectedFilePathText">Chưa chọn file model — Bấm 'Chọn File Model' để mở file (.pt, .pth, .bin, .safetensors, .ckpt)</span>
+            <span class="file-size-badge" id="selectedFileSizeBadge"></span>
+          </div>
         </div>
-        <div class="control-group">
+        <div class="control-actions">
           <button id="btnRunBenchmark" class="btn btn-primary" onclick="runBenchmarkOnTestSplit()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polygon points="5 3 19 12 5 21 5 3"></polygon>
             </svg>
             <span id="btnRunBenchmarkText">Chạy Benchmark</span>
+          </button>
+          <button class="btn btn-outline" onclick="exportCSV()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Xuất CSV</span>
           </button>
         </div>
       </div>
@@ -2403,23 +2735,89 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
           </div>
         </div>
 
-        <div class="card-surface">
-          <div class="card-title">Bảng Đánh Giá (Tập Test 10% - 80/10/10)</div>
-          <table class="apple-table">
-            <thead>
-              <tr>
-                <th>Model</th>
-                <th>Epoch</th>
-                <th>Test Loss</th>
-                <th>Acc@0 (%)</th>
-                <th>6-Aspect F1 (%)</th>
-                <th>Macro-MAE</th>
-                <th>Rationale F1 (%)</th>
-                <th>Leakage (%)</th>
-              </tr>
-            </thead>
-            <tbody id="benchmarkTableBody"></tbody>
-          </table>
+        <div class="card-surface table-card">
+          <div class="card-title">Bảng đánh giá</div>
+          <div class="table-scroll-container">
+            <table class="apple-table">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>Epoch</th>
+                  <th>Test Loss</th>
+                  <th>Acc@0 (%)</th>
+                  <th>6-Aspect F1 (%)</th>
+                  <th>Macro-MAE</th>
+                  <th>Rationale F1 (%)</th>
+                  <th>Leakage (%)</th>
+                </tr>
+              </thead>
+              <tbody id="benchmarkTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view-panel" id="panel-viz">
+        <div class="viz-toolbar">
+          <span class="viz-status-note" id="vizStatusNote">Biểu đồ tự động cập nhật từ các mô hình đã chạy trong phiên Benchmark hiện tại (Acc@0, 6-Aspect F1, Rationale F1, Leakage, Macro-MAE).</span>
+          <button class="btn btn-primary" onclick="exportAllVizImages()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Xuất Tất Cả Hình Ảnh</span>
+          </button>
+        </div>
+
+        <div class="viz-grid">
+          <div class="viz-card full-width">
+            <div class="viz-card-actions">
+              <button class="btn btn-outline btn-sm" onclick="saveSingleChart('vizCanvasCore', 'benchmark_core_metrics.png')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Lưu ảnh</span>
+              </button>
+            </div>
+            <div class="viz-canvas-wrap">
+              <canvas id="vizCanvasCore" class="viz-canvas" width="2000" height="720"></canvas>
+            </div>
+          </div>
+
+          <div class="viz-card">
+            <div class="viz-card-actions">
+              <button class="btn btn-outline btn-sm" onclick="saveSingleChart('vizCanvasLeakage', 'benchmark_leakage.png')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Lưu ảnh</span>
+              </button>
+            </div>
+            <div class="viz-canvas-wrap">
+              <canvas id="vizCanvasLeakage" class="viz-canvas" width="1100" height="640"></canvas>
+            </div>
+          </div>
+
+          <div class="viz-card">
+            <div class="viz-card-actions">
+              <button class="btn btn-outline btn-sm" onclick="saveSingleChart('vizCanvasMae', 'benchmark_macro_mae.png')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Lưu ảnh</span>
+              </button>
+            </div>
+            <div class="viz-canvas-wrap">
+              <canvas id="vizCanvasMae" class="viz-canvas" width="1100" height="640"></canvas>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -2455,12 +2853,83 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
 - Branding:</pre>
         </div>
       </section>
+
+      <section class="view-panel" id="panel-metrics">
+        <div class="card-surface" style="padding: 18px 22px;">
+          <div class="card-title" style="margin-bottom: 6px;">Ý Nghĩa Các Chỉ Số Đánh Giá (Benchmark Metrics)</div>
+          <p style="font-size: 14px; color: var(--ink-muted-80);">
+            Toàn bộ các mô hình được đánh giá trực tiếp trên cùng <strong>tập kiểm thử độc lập (10% Test Split = 999 mẫu)</strong> chia sẵn theo tỷ lệ 80/10/10 từ bộ dữ liệu 9.990 đánh giá khách sạn.
+          </p>
+        </div>
+
+        <div class="metrics-guide-grid">
+          <div class="metric-guide-card">
+            <div class="metric-guide-header">
+              <span class="metric-guide-name">1. Acc@0 (%) — Độ chính xác tuyệt đối phân cực</span>
+              <span class="metric-direction up">↑</span>
+            </div>
+            <p class="metric-guide-desc">
+              Tỷ lệ phần trăm dự đoán đúng chính xác nhãn cảm xúc (<em>Negative / Neutral / Positive</em>, độ lệch bậc bằng 0) trên các khía cạnh được đề cập và phân cực tổng thể của bài đánh giá.
+            </p>
+          </div>
+
+          <div class="metric-guide-card">
+            <div class="metric-guide-header">
+              <span class="metric-guide-name">2. 6-Aspect F1 (%) — Điểm F1 vĩ mô 6 khía cạnh</span>
+              <span class="metric-direction up">↑</span>
+            </div>
+            <p class="metric-guide-desc">
+              Trung bình cộng Macro-F1 trên 6 khía cạnh khách sạn (<em>Service, Facility, Experience, Amenity, Loyalty, Branding</em>), mỗi khía cạnh gồm 4 trạng thái (<em>Not Mentioned, Negative, Neutral, Positive</em>). Phản ánh khả năng vừa phát hiện khía cạnh vừa phân loại cảm xúc trước dữ liệu mất cân bằng.
+            </p>
+          </div>
+
+          <div class="metric-guide-card">
+            <div class="metric-guide-header">
+              <span class="metric-guide-name">3. Macro-MAE — Sai số tuyệt đối trung bình vĩ mô</span>
+              <span class="metric-direction down">↓</span>
+            </div>
+            <p class="metric-guide-desc">
+              Sai số khoảng cách trung bình giữa nhãn cảm xúc dự đoán và thực tế trên thang thứ tự (<em>0: Negative, 1: Neutral, 2: Positive</em>), tính trung bình đều qua từng lớp cảm xúc để phạt nặng lỗi đảo cực (nhầm <em>Positive</em> thành <em>Negative</em> bị phạt 2 đơn vị).
+            </p>
+          </div>
+
+          <div class="metric-guide-card">
+            <div class="metric-guide-header">
+              <span class="metric-guide-name">4. Rationale F1 (%) — Độ chuẩn xác trích xuất dẫn chứng</span>
+              <span class="metric-direction up">↑</span>
+            </div>
+            <p class="metric-guide-desc">
+              Điểm F1 mức từ (token-level overlap) đo mức độ trùng khớp giữa vùng từ khóa dẫn chứng (rationale span) do mô hình trích xuất và vùng dẫn chứng thực tế do con người gán nhãn cho từng khía cạnh.
+            </p>
+          </div>
+
+          <div class="metric-guide-card">
+            <div class="metric-guide-header">
+              <span class="metric-guide-name">5. Leakage (%) — Tỷ lệ chồng lấn/rò rỉ dẫn chứng</span>
+              <span class="metric-direction down">↓</span>
+            </div>
+            <p class="metric-guide-desc">
+              Tỷ lệ phần trăm các token dẫn chứng bị mô hình gán trùng lặp cho từ 2 khía cạnh trở lên trong cùng một bài đánh giá. Chỉ số này càng thấp chứng tỏ cơ chế Orthogonal/Competitive Masking tách biệt dẫn chứng giữa các khía cạnh càng rõ ràng.
+            </p>
+          </div>
+
+          <div class="metric-guide-card">
+            <div class="metric-guide-header">
+              <span class="metric-guide-name">6. Test Loss &amp; Epoch — Hàm mất mát &amp; Vòng huấn luyện</span>
+              <span class="metric-direction down">↓</span>
+            </div>
+            <p class="metric-guide-desc">
+              <strong>Test Loss</strong> là tổng hợp hàm mất mát phân loại khía cạnh (Cross-Entropy) và hàm mất mát dẫn chứng (Binary Cross-Entropy) trên tập Test 10%. <strong>Epoch</strong> cho biết vòng huấn luyện mà tại đó trọng số checkpoint đạt chất lượng tốt nhất.
+            </p>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 
   <script>
-    let availableModels = [];
     let currentSelectedModel = "";
+    let currentBenchmarkRows = [];
     let isExportingCSV = false;
     let pollTimer = null;
 
@@ -2469,42 +2938,295 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       document.querySelectorAll(".view-panel").forEach(el => el.classList.remove("active"));
       document.getElementById("nav-" + tabId).classList.add("active");
       document.getElementById("panel-" + tabId).classList.add("active");
-    }
-
-    function updateModelDropdown(models) {
-      availableModels = models || [];
-      const selectEl = document.getElementById("modelSelect");
-      selectEl.innerHTML = "";
-
-      if (availableModels.length === 0) {
-        const opt = document.createElement("option");
-        opt.value = "";
-        opt.textContent = "Chưa có model (Bấm Mở thư mục)";
-        selectEl.appendChild(opt);
-        currentSelectedModel = "";
-      } else {
-        availableModels.forEach(m => {
-          const opt = document.createElement("option");
-          opt.value = m.filename;
-          opt.textContent = m.display_id + " (" + m.size_label + ")";
-          selectEl.appendChild(opt);
-        });
-        if (!currentSelectedModel || !availableModels.some(m => m.filename === currentSelectedModel)) {
-          currentSelectedModel = availableModels[0].filename;
-        }
-        selectEl.value = currentSelectedModel;
+      if (tabId === "viz") {
+        renderAllVisualizations(currentBenchmarkRows);
       }
     }
 
-    async function loadInitialModels() {
-      const res = await fetch("/api/models");
-      const data = await res.json();
-      updateModelDropdown(data.models || []);
-      await loadBenchmarkData();
+    function shortModelLabel(rawModelPath) {
+      const s = String(rawModelPath || "");
+      const parts = s.split("/").filter(Boolean);
+      if (parts.length >= 2) {
+        const file = parts[parts.length - 1];
+        const folder = parts.find(p => p.toLowerCase().startsWith("model lần")) || parts[parts.length - 2];
+        return folder + "/" + file;
+      }
+      return s;
     }
 
-    async function browseModelDir() {
-      const res = await fetch("/api/browse_model_dir", { method: "POST" });
+    function drawEmptyCanvasState(canvas, message) {
+      const ctx = canvas.getContext("2d");
+      const W = canvas.width;
+      const H = canvas.height;
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = "#e5e5ea";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(20, 20, W - 40, H - 40);
+      ctx.fillStyle = "#7a7a7a";
+      ctx.font = "500 26px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(message, W / 2, H / 2);
+      ctx.restore();
+    }
+
+    function drawGroupedBarChartNoTitle(canvasId, rows, seriesList, yMax, yUnit, decimals) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      if (!rows || rows.length === 0) {
+        drawEmptyCanvasState(canvas, "Chưa có dữ liệu phiên Benchmark — Hãy chạy ít nhất 1 mô hình");
+        return;
+      }
+
+      const ctx = canvas.getContext("2d");
+      const W = canvas.width;
+      const H = canvas.height;
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, W, H);
+
+      const padTop = 76;
+      const padBottom = 115;
+      const padLeft = 115;
+      const padRight = 50;
+      const plotW = W - padLeft - padRight;
+      const plotH = H - padTop - padBottom;
+
+      // Legend at top (no chart title)
+      const legendFont = "600 22px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif";
+      ctx.font = legendFont;
+      let totalLegendW = 0;
+      const itemWidths = seriesList.map(s => {
+        const w = 28 + 10 + ctx.measureText(s.label).width;
+        totalLegendW += w;
+        return w;
+      });
+      totalLegendW += Math.max(0, seriesList.length - 1) * 36;
+      let curLegendX = (W - totalLegendW) / 2;
+      const legendY = 34;
+
+      seriesList.forEach((s, idx) => {
+        ctx.fillStyle = s.color;
+        ctx.beginPath();
+        ctx.roundRect(curLegendX, legendY - 12, 26, 20, 5);
+        ctx.fill();
+        ctx.fillStyle = "#1d1d1f";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(s.label, curLegendX + 36, legendY - 2);
+        curLegendX += itemWidths[idx] + 36;
+      });
+
+      // Y-axis gridlines & labels
+      const steps = 5;
+      ctx.font = "500 20px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif";
+      for (let i = 0; i <= steps; i++) {
+        const ratio = i / steps;
+        const val = yMax * (1 - ratio);
+        const y = padTop + ratio * plotH;
+
+        ctx.strokeStyle = i === steps ? "#8e8e93" : "#e5e5ea";
+        ctx.lineWidth = i === steps ? 2.5 : 1.5;
+        ctx.beginPath();
+        ctx.moveTo(padLeft, y);
+        ctx.lineTo(padLeft + plotW, y);
+        ctx.stroke();
+
+        ctx.fillStyle = "#515154";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        const tickStr = decimals <= 1 ? val.toFixed(decimals === 0 ? 0 : 1) : val.toFixed(2);
+        ctx.fillText(tickStr + yUnit, padLeft - 16, y);
+      }
+
+      // Bars
+      const nGroups = rows.length;
+      const nSeries = seriesList.length;
+      const groupStep = plotW / nGroups;
+      const maxGroupW = Math.min(groupStep * 0.72, nSeries * 92);
+      const barGap = nSeries > 1 ? 10 : 0;
+      const barW = Math.max(22, (maxGroupW - barGap * (nSeries - 1)) / nSeries);
+
+      rows.forEach((row, gIdx) => {
+        const groupCenterX = padLeft + gIdx * groupStep + groupStep / 2;
+        const actualGroupW = nSeries * barW + (nSeries - 1) * barGap;
+        const startX = groupCenterX - actualGroupW / 2;
+
+        seriesList.forEach((s, sIdx) => {
+          const rawVal = Number(row[s.key] || 0);
+          const clampedVal = Math.max(0, Math.min(yMax, rawVal));
+          const barH = (clampedVal / yMax) * plotH;
+          const bx = startX + sIdx * (barW + barGap);
+          const by = padTop + plotH - barH;
+
+          ctx.fillStyle = s.color;
+          ctx.beginPath();
+          ctx.roundRect(bx, by, barW, Math.max(barH, 3), [6, 6, 0, 0]);
+          ctx.fill();
+
+          // Value label above bar
+          ctx.fillStyle = "#1d1d1f";
+          ctx.font = "600 18px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(rawVal.toFixed(decimals) + yUnit, bx + barW / 2, by - 7);
+        });
+
+        // X-axis model label
+        const label = shortModelLabel(row.model);
+        ctx.fillStyle = "#1d1d1f";
+        ctx.font = "600 20px 'SF Mono', 'Menlo', monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        ctx.fillText(label, groupCenterX, padTop + plotH + 20);
+      });
+
+      ctx.restore();
+    }
+
+    function renderAllVisualizations(rows) {
+      const list = rows || [];
+      drawGroupedBarChartNoTitle(
+        "vizCanvasCore",
+        list,
+        [
+          { key: "acc_at_0", label: "Acc@0 (%) ↑", color: "#0066cc" },
+          { key: "aspect_macro_f1", label: "6-Aspect F1 (%) ↑", color: "#196f3d" },
+          { key: "rationale_f1", label: "Rationale F1 (%) ↑", color: "#d35400" }
+        ],
+        100,
+        "%",
+        2
+      );
+
+      const maxLeak = list.length > 0
+        ? Math.max(20, Math.ceil(Math.max(...list.map(r => Number(r.leakage_rate || 0))) * 1.25 / 10) * 10)
+        : 100;
+      drawGroupedBarChartNoTitle(
+        "vizCanvasLeakage",
+        list,
+        [
+          { key: "leakage_rate", label: "Leakage (%) ↓", color: "#c0392b" }
+        ],
+        Math.min(100, maxLeak),
+        "%",
+        2
+      );
+
+      const maxMae = list.length > 0
+        ? Math.max(0.5, Math.ceil(Math.max(...list.map(r => Number(r.macro_mae || 0))) * 1.25 * 10) / 10)
+        : 1.0;
+      drawGroupedBarChartNoTitle(
+        "vizCanvasMae",
+        list,
+        [
+          { key: "macro_mae", label: "Macro-MAE ↓", color: "#6c3483" }
+        ],
+        maxMae,
+        "",
+        4
+      );
+    }
+
+    async function saveSingleChart(canvasId, defaultFilename) {
+      if (!currentBenchmarkRows || currentBenchmarkRows.length === 0) {
+        alert("Chưa có dữ liệu Benchmark trong phiên hiện tại. Vui lòng chạy Benchmark ít nhất 1 mô hình trước khi xuất ảnh.");
+        return;
+      }
+      renderAllVisualizations(currentBenchmarkRows);
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      const dataUrl = canvas.toDataURL("image/png");
+      const res = await fetch("/api/save_viz_image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          default_name: defaultFilename,
+          data_url: dataUrl
+        })
+      });
+      const data = await res.json();
+      if (data.cancelled) return;
+      if (!data.ok) {
+        alert(data.error || "Không thể lưu hình ảnh.");
+        return;
+      }
+      document.getElementById("vizStatusNote").textContent = "Đã lưu ảnh tại: " + data.saved_path;
+    }
+
+    async function exportAllVizImages() {
+      if (!currentBenchmarkRows || currentBenchmarkRows.length === 0) {
+        alert("Chưa có dữ liệu Benchmark trong phiên hiện tại. Vui lòng chạy Benchmark ít nhất 1 mô hình trước khi xuất ảnh.");
+        return;
+      }
+      renderAllVisualizations(currentBenchmarkRows);
+      const images = [
+        {
+          filename: "benchmark_core_metrics.png",
+          data_url: document.getElementById("vizCanvasCore").toDataURL("image/png")
+        },
+        {
+          filename: "benchmark_leakage.png",
+          data_url: document.getElementById("vizCanvasLeakage").toDataURL("image/png")
+        },
+        {
+          filename: "benchmark_macro_mae.png",
+          data_url: document.getElementById("vizCanvasMae").toDataURL("image/png")
+        }
+      ];
+      const res = await fetch("/api/save_viz_batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ images })
+      });
+      const data = await res.json();
+      if (data.cancelled) return;
+      if (!data.ok) {
+        alert(data.error || "Không thể lưu các hình ảnh.");
+        return;
+      }
+      document.getElementById("vizStatusNote").textContent = "Đã lưu " + (data.saved_files ? data.saved_files.length : 3) + " ảnh vào thư mục: " + data.saved_dir;
+    }
+
+    function updateSelectedFileUI(modelInfo) {
+      const boxEl = document.getElementById("selectedFilePathBox");
+      const textEl = document.getElementById("selectedFilePathText");
+      const badgeEl = document.getElementById("selectedFileSizeBadge");
+
+      if (!modelInfo || !modelInfo.abs_path) {
+        currentSelectedModel = "";
+        textEl.textContent = "Chưa chọn file model — Bấm 'Chọn File Model' để mở file (.pt, .pth, .bin, .safetensors, .ckpt)";
+        textEl.classList.add("placeholder");
+        boxEl.title = "Chưa chọn file model";
+        badgeEl.style.display = "none";
+        badgeEl.textContent = "";
+      } else {
+        currentSelectedModel = modelInfo.abs_path;
+        textEl.textContent = modelInfo.abs_path;
+        textEl.classList.remove("placeholder");
+        boxEl.title = modelInfo.abs_path;
+        if (modelInfo.size_label) {
+          badgeEl.textContent = modelInfo.size_label;
+          badgeEl.style.display = "inline-block";
+        } else {
+          badgeEl.style.display = "none";
+        }
+      }
+    }
+
+    async function loadInitialState() {
+      const res = await fetch("/api/benchmark");
+      const data = await res.json();
+      if (data.selected_model_info) {
+        updateSelectedFileUI(data.selected_model_info);
+      }
+      renderBenchmarkTableAndKPIs(data);
+    }
+
+    async function browseModelFile() {
+      const res = await fetch("/api/browse_model_file", { method: "POST" });
       const data = await res.json();
       if (data.cancelled) {
         return;
@@ -2513,19 +3235,13 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
         if (data.error) alert(data.error);
         return;
       }
-      currentSelectedModel = "";
-      updateModelDropdown(data.models || []);
-      await loadBenchmarkData();
-    }
-
-    async function onModelChange() {
-      currentSelectedModel = document.getElementById("modelSelect").value;
+      updateSelectedFileUI(data.model);
       await loadBenchmarkData();
     }
 
     async function runBenchmarkOnTestSplit() {
       if (!currentSelectedModel) {
-        alert("Vui lòng bấm 'Mở thư mục' và chọn một mô hình trước khi chạy Benchmark.");
+        alert("Vui lòng bấm 'Chọn File Model' để chọn một file mô hình trước khi chạy Benchmark.");
         return;
       }
       const btn = document.getElementById("btnRunBenchmark");
@@ -2583,9 +3299,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       }
     }
 
-    async function loadBenchmarkData() {
-      const res = await fetch("/api/benchmark?model=" + encodeURIComponent(currentSelectedModel || ""));
-      const data = await res.json();
+    function renderBenchmarkTableAndKPIs(data) {
       const tbody = document.getElementById("benchmarkTableBody");
       tbody.innerHTML = "";
 
@@ -2605,6 +3319,8 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       }
 
       const rows = data.rows || [];
+      currentBenchmarkRows = rows;
+      renderAllVisualizations(currentBenchmarkRows);
       if (rows.length === 0) {
         const tr = document.createElement("tr");
         tr.innerHTML = `<td colspan="8" style="text-align:center; color:#7a7a7a;">${data.message || "Chưa có mô hình nào chạy Benchmark."}</td>`;
@@ -2615,7 +3331,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       rows.forEach(r => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
-          <td><strong>${r.model}</strong></td>
+          <td class="model-path-cell">${r.model}</td>
           <td>${r.epoch}</td>
           <td>${Number(r.val_loss).toFixed(4)}</td>
           <td>${Number(r.acc_at_0).toFixed(2)}%</td>
@@ -2626,6 +3342,12 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
         `;
         tbody.appendChild(tr);
       });
+    }
+
+    async function loadBenchmarkData() {
+      const res = await fetch("/api/benchmark?model=" + encodeURIComponent(currentSelectedModel || ""));
+      const data = await res.json();
+      renderBenchmarkTableAndKPIs(data);
     }
 
     function exportCSV() {
@@ -2641,6 +3363,10 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
     }
 
     async function runModelPrediction() {
+      if (!currentSelectedModel) {
+        alert("Vui lòng bấm 'Chọn File Model' trước khi chạy thử.");
+        return;
+      }
       const txt = document.getElementById("reviewInput").value;
       const outBox = document.getElementById("structuredOutputBox");
       outBox.textContent = "Đang chạy mô hình...";
@@ -2663,7 +3389,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
     }
 
     window.addEventListener("DOMContentLoaded", () => {
-      loadInitialModels();
+      loadInitialState();
     });
   </script>
 </body>
@@ -2701,14 +3427,6 @@ class BenchmarkRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if path == "/api/models":
-            models = scan_available_models()
-            self._send_json({
-                "model_dir": str(get_model_dir()),
-                "models": models
-            })
-            return
-
         if path == "/api/benchmark":
             sel = qs.get("model", [""])[0]
             data = get_benchmark_data(sel)
@@ -2735,20 +3453,18 @@ class BenchmarkRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path == "/api/browse_model_dir":
-            chosen = choose_directory_dialog()
+        if parsed.path in ("/api/browse_model_file", "/api/browse_model_dir"):
+            chosen = choose_model_file_dialog()
             if not chosen:
                 self._send_json({"ok": False, "cancelled": True})
                 return
-            ok, msg, new_dir = set_model_dir(chosen)
-            if not ok:
-                self._send_json({"ok": False, "error": msg, "model_dir": str(new_dir)}, status=400)
+            ok, msg, info = set_selected_model_file(chosen)
+            if not ok or info is None:
+                self._send_json({"ok": False, "error": msg}, status=400)
                 return
-            models = scan_available_models()
             self._send_json({
                 "ok": True,
-                "model_dir": str(new_dir),
-                "models": models
+                "model": info
             })
             return
 
@@ -2778,6 +3494,69 @@ class BenchmarkRequestHandler(BaseHTTPRequestHandler):
             model_name = req.get("model", "")
             result = evaluate_new_review(review_txt, model_name)
             self._send_json(result)
+            return
+
+        if parsed.path == "/api/save_viz_image":
+            length = int(self.headers.get("Content-Length", "0"))
+            raw_body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+            try:
+                req = json.loads(raw_body)
+            except Exception:
+                req = {}
+            default_name = str(req.get("default_name", "benchmark_chart.png") or "benchmark_chart.png")
+            data_url = str(req.get("data_url", "") or "")
+            if not data_url:
+                self._send_json({"ok": False, "error": "Dữ liệu hình ảnh trống."}, status=400)
+                return
+            chosen_file = choose_save_file_dialog(default_name=default_name)
+            if not chosen_file:
+                self._send_json({"ok": False, "cancelled": True})
+                return
+            try:
+                out_path = Path(chosen_file).expanduser().resolve()
+                save_data_url_png(data_url, out_path)
+                self._send_json({"ok": True, "saved_path": str(out_path)})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, status=500)
+            return
+
+        if parsed.path == "/api/save_viz_batch":
+            length = int(self.headers.get("Content-Length", "0"))
+            raw_body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+            try:
+                req = json.loads(raw_body)
+            except Exception:
+                req = {}
+            images = req.get("images", [])
+            if not isinstance(images, list) or not images:
+                self._send_json({"ok": False, "error": "Không có hình ảnh để lưu."}, status=400)
+                return
+            chosen_dir = choose_save_directory_dialog()
+            if not chosen_dir:
+                self._send_json({"ok": False, "cancelled": True})
+                return
+            try:
+                out_dir = Path(chosen_dir).expanduser().resolve()
+                out_dir.mkdir(parents=True, exist_ok=True)
+                saved_files = []
+                for item in images:
+                    if not isinstance(item, dict):
+                        continue
+                    fname = Path(str(item.get("filename", "chart.png"))).name
+                    if not fname.lower().endswith(".png"):
+                        fname += ".png"
+                    d_url = str(item.get("data_url", "") or "")
+                    if d_url:
+                        dest = out_dir / fname
+                        save_data_url_png(d_url, dest)
+                        saved_files.append(str(dest))
+                self._send_json({
+                    "ok": True,
+                    "saved_dir": str(out_dir),
+                    "saved_files": saved_files
+                })
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, status=500)
             return
 
         self._send_json({"error": "Not found"}, status=404)
