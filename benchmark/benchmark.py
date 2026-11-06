@@ -2093,6 +2093,30 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       --font-display: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
       --font-text: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
       --font-mono: "SF Mono", "Menlo", "Monaco", monospace;
+      --ease-apple: cubic-bezier(0.22, 1, 0.36, 1);
+      --ease-apple-snappy: cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    @keyframes applePanelIn {
+      0% {
+        opacity: 0;
+        transform: translateY(8px) scale(0.994);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @keyframes appleCardIn {
+      0% {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     * {
@@ -2176,11 +2200,15 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       font-size: 14px;
       cursor: pointer;
       text-align: left;
-      transition: background-color 0.15s ease, color 0.15s ease;
+      transition: background-color 0.28s var(--ease-apple), color 0.28s var(--ease-apple), transform 0.2s var(--ease-apple), box-shadow 0.28s var(--ease-apple);
     }
 
     .nav-item:hover {
-      background-color: rgba(0, 0, 0, 0.04);
+      background-color: rgba(0, 0, 0, 0.045);
+    }
+
+    .nav-item:active {
+      transform: scale(0.98);
     }
 
     .nav-item svg {
@@ -2188,6 +2216,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       height: 18px;
       color: var(--ink-muted-48);
       flex-shrink: 0;
+      transition: color 0.28s var(--ease-apple), transform 0.28s var(--ease-apple);
     }
 
     .nav-item.active {
@@ -2195,11 +2224,12 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       color: var(--primary);
       font-weight: 600;
       border-color: var(--hairline);
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     }
 
     .nav-item.active svg {
       color: var(--primary);
+      transform: scale(1.05);
     }
 
     .main-stage {
@@ -2290,17 +2320,26 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
     .btn {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
       font-family: var(--font-text);
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 600;
-      padding: 9px 16px;
+      padding: 8px 15px;
       border-radius: var(--rounded-pill);
       cursor: pointer;
       text-decoration: none;
       border: 1px solid transparent;
       white-space: nowrap;
-      transition: opacity 0.15s ease, background-color 0.15s ease;
+      transition: transform 0.22s var(--ease-apple), box-shadow 0.22s var(--ease-apple), background-color 0.22s var(--ease-apple), opacity 0.2s var(--ease-apple);
+    }
+
+    .btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 10px rgba(0, 102, 204, 0.12);
+    }
+
+    .btn:active:not(:disabled) {
+      transform: scale(0.96);
     }
 
     .btn:disabled {
@@ -2309,8 +2348,8 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
     }
 
     .btn svg {
-      width: 16px;
-      height: 16px;
+      width: 15px;
+      height: 15px;
       flex-shrink: 0;
     }
 
@@ -2322,7 +2361,23 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
     .btn-outline {
       background-color: var(--canvas);
       color: var(--primary);
+      border-color: rgba(0, 102, 204, 0.35);
+    }
+
+    .btn-outline:hover:not(:disabled) {
+      background-color: rgba(0, 102, 204, 0.05);
       border-color: var(--primary);
+    }
+
+    .btn-compact {
+      font-size: 12.5px;
+      padding: 6px 12px;
+      gap: 5px;
+    }
+
+    .btn-compact svg {
+      width: 13.5px;
+      height: 13.5px;
     }
 
     .progress-banner {
@@ -2334,6 +2389,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       flex-direction: column;
       gap: 8px;
       flex-shrink: 0;
+      animation: appleCardIn 0.32s var(--ease-apple) both;
     }
 
     .progress-banner.active {
@@ -2360,7 +2416,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       height: 100%;
       width: 0%;
       background-color: var(--primary);
-      transition: width 0.25s ease;
+      transition: width 0.38s var(--ease-apple-snappy);
     }
 
     .view-panel {
@@ -2375,6 +2431,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
 
     .view-panel.active {
       display: flex;
+      animation: applePanelIn 0.38s var(--ease-apple) both;
     }
 
     .kpi-grid {
@@ -2392,6 +2449,12 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       display: flex;
       flex-direction: column;
       gap: 4px;
+      transition: transform 0.28s var(--ease-apple), box-shadow 0.28s var(--ease-apple);
+    }
+
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
     }
 
     .kpi-label {
@@ -2458,6 +2521,15 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
     .apple-table td {
       padding: 12px;
       border-bottom: 1px solid var(--divider-soft);
+    }
+
+    .apple-table tbody tr {
+      transition: background-color 0.2s var(--ease-apple);
+      animation: appleCardIn 0.32s var(--ease-apple) both;
+    }
+
+    .apple-table tbody tr:hover {
+      background-color: rgba(0, 102, 204, 0.035);
     }
 
     .model-path-cell {
@@ -2557,50 +2629,77 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
     .viz-toolbar {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      background-color: var(--canvas);
-      border: 1px solid var(--hairline);
-      border-radius: var(--rounded-lg);
-      padding: 12px 18px;
+      justify-content: flex-end;
+      gap: 10px;
       flex-shrink: 0;
     }
 
     .viz-status-note {
-      font-size: 13.5px;
-      color: var(--ink-muted-80);
+      font-size: 12.5px;
+      color: var(--ink-muted-48);
+      margin-right: auto;
     }
 
     .viz-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
-      gap: 16px;
+      gap: 14px;
+      padding-bottom: 12px;
     }
 
     .viz-card {
       background-color: var(--canvas);
       border: 1px solid var(--hairline);
       border-radius: var(--rounded-lg);
-      padding: 16px 18px;
+      padding: 12px 14px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
       position: relative;
+      transition: transform 0.28s var(--ease-apple), box-shadow 0.28s var(--ease-apple);
+      animation: appleCardIn 0.36s var(--ease-apple) both;
     }
 
-    .viz-card.full-width {
-      grid-column: 1 / -1;
+    .viz-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
     }
 
-    .viz-card-actions {
-      display: flex;
+    .viz-save-chip {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      z-index: 2;
+      display: inline-flex;
       align-items: center;
-      justify-content: flex-end;
+      gap: 4px;
+      font-family: var(--font-text);
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--primary);
+      background-color: rgba(255, 255, 255, 0.88);
+      backdrop-filter: saturate(180%) blur(12px);
+      -webkit-backdrop-filter: saturate(180%) blur(12px);
+      border: 1px solid rgba(0, 102, 204, 0.28);
+      border-radius: var(--rounded-pill);
+      padding: 4px 10px;
+      cursor: pointer;
+      transition: transform 0.2s var(--ease-apple), background-color 0.2s var(--ease-apple), border-color 0.2s var(--ease-apple);
     }
 
-    .btn-sm {
-      font-size: 12.5px;
-      padding: 6px 12px;
+    .viz-save-chip:hover {
+      background-color: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+      transform: translateY(-1px);
+    }
+
+    .viz-save-chip:active {
+      transform: scale(0.95);
+    }
+
+    .viz-save-chip svg {
+      width: 12px;
+      height: 12px;
     }
 
     .viz-canvas-wrap {
@@ -2690,7 +2789,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
             </svg>
             <span id="btnRunBenchmarkText">Chạy Benchmark</span>
           </button>
-          <button class="btn btn-outline" onclick="exportCSV()">
+          <button class="btn btn-outline btn-compact" onclick="exportCSV()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
@@ -2759,63 +2858,85 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
 
       <section class="view-panel" id="panel-viz">
         <div class="viz-toolbar">
-          <span class="viz-status-note" id="vizStatusNote">Biểu đồ tự động cập nhật từ các mô hình đã chạy trong phiên Benchmark hiện tại (Acc@0, 6-Aspect F1, Rationale F1, Leakage, Macro-MAE).</span>
-          <button class="btn btn-primary" onclick="exportAllVizImages()">
+          <span class="viz-status-note" id="vizStatusNote"></span>
+          <button class="btn btn-outline btn-compact" onclick="exportAllVizImages()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
               <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
-            <span>Xuất Tất Cả Hình Ảnh</span>
+            <span>Lưu tất cả ảnh</span>
           </button>
         </div>
 
         <div class="viz-grid">
-          <div class="viz-card full-width">
-            <div class="viz-card-actions">
-              <button class="btn btn-outline btn-sm" onclick="saveSingleChart('vizCanvasCore', 'benchmark_core_metrics.png')">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="7 10 12 15 17 10"></polyline>
-                  <line x1="12" y1="15" x2="12" y2="3"></line>
-                </svg>
-                <span>Lưu ảnh</span>
-              </button>
-            </div>
+          <div class="viz-card">
+            <button class="viz-save-chip" onclick="saveSingleChart('vizCanvasAcc', 'benchmark_acc_at_0.png')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Lưu ảnh</span>
+            </button>
             <div class="viz-canvas-wrap">
-              <canvas id="vizCanvasCore" class="viz-canvas" width="2000" height="720"></canvas>
+              <canvas id="vizCanvasAcc" class="viz-canvas" width="1100" height="620"></canvas>
             </div>
           </div>
 
           <div class="viz-card">
-            <div class="viz-card-actions">
-              <button class="btn btn-outline btn-sm" onclick="saveSingleChart('vizCanvasLeakage', 'benchmark_leakage.png')">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="7 10 12 15 17 10"></polyline>
-                  <line x1="12" y1="15" x2="12" y2="3"></line>
-                </svg>
-                <span>Lưu ảnh</span>
-              </button>
-            </div>
+            <button class="viz-save-chip" onclick="saveSingleChart('vizCanvasAspectF1', 'benchmark_aspect_f1.png')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Lưu ảnh</span>
+            </button>
             <div class="viz-canvas-wrap">
-              <canvas id="vizCanvasLeakage" class="viz-canvas" width="1100" height="640"></canvas>
+              <canvas id="vizCanvasAspectF1" class="viz-canvas" width="1100" height="620"></canvas>
             </div>
           </div>
 
           <div class="viz-card">
-            <div class="viz-card-actions">
-              <button class="btn btn-outline btn-sm" onclick="saveSingleChart('vizCanvasMae', 'benchmark_macro_mae.png')">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="7 10 12 15 17 10"></polyline>
-                  <line x1="12" y1="15" x2="12" y2="3"></line>
-                </svg>
-                <span>Lưu ảnh</span>
-              </button>
-            </div>
+            <button class="viz-save-chip" onclick="saveSingleChart('vizCanvasRationaleF1', 'benchmark_rationale_f1.png')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Lưu ảnh</span>
+            </button>
             <div class="viz-canvas-wrap">
-              <canvas id="vizCanvasMae" class="viz-canvas" width="1100" height="640"></canvas>
+              <canvas id="vizCanvasRationaleF1" class="viz-canvas" width="1100" height="620"></canvas>
+            </div>
+          </div>
+
+          <div class="viz-card">
+            <button class="viz-save-chip" onclick="saveSingleChart('vizCanvasLeakage', 'benchmark_leakage.png')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Lưu ảnh</span>
+            </button>
+            <div class="viz-canvas-wrap">
+              <canvas id="vizCanvasLeakage" class="viz-canvas" width="1100" height="620"></canvas>
+            </div>
+          </div>
+
+          <div class="viz-card">
+            <button class="viz-save-chip" onclick="saveSingleChart('vizCanvasMae', 'benchmark_macro_mae.png')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Lưu ảnh</span>
+            </button>
+            <div class="viz-canvas-wrap">
+              <canvas id="vizCanvasMae" class="viz-canvas" width="1100" height="620"></canvas>
             </div>
           </div>
         </div>
@@ -2932,6 +3053,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
     let currentBenchmarkRows = [];
     let isExportingCSV = false;
     let pollTimer = null;
+    let vizAnimFrameId = null;
 
     function switchTab(tabId) {
       document.querySelectorAll(".nav-item").forEach(el => el.classList.remove("active"));
@@ -2939,19 +3061,14 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       document.getElementById("nav-" + tabId).classList.add("active");
       document.getElementById("panel-" + tabId).classList.add("active");
       if (tabId === "viz") {
-        renderAllVisualizations(currentBenchmarkRows);
+        animateVisualizations(currentBenchmarkRows);
       }
     }
 
     function shortModelLabel(rawModelPath) {
       const s = String(rawModelPath || "");
       const parts = s.split("/").filter(Boolean);
-      if (parts.length >= 2) {
-        const file = parts[parts.length - 1];
-        const folder = parts.find(p => p.toLowerCase().startsWith("model lần")) || parts[parts.length - 2];
-        return folder + "/" + file;
-      }
-      return s;
+      return parts.length > 0 ? parts[parts.length - 1] : s;
     }
 
     function drawEmptyCanvasState(canvas, message) {
@@ -2965,18 +3082,18 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       ctx.lineWidth = 2;
       ctx.strokeRect(20, 20, W - 40, H - 40);
       ctx.fillStyle = "#7a7a7a";
-      ctx.font = "500 26px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif";
+      ctx.font = "500 22px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(message, W / 2, H / 2);
       ctx.restore();
     }
 
-    function drawGroupedBarChartNoTitle(canvasId, rows, seriesList, yMax, yUnit, decimals) {
+    function drawSingleBarChartNoTitle(canvasId, rows, metricKey, legendLabel, barColor, yMax, yUnit, decimals, animProgress = 1.0) {
       const canvas = document.getElementById(canvasId);
       if (!canvas) return;
       if (!rows || rows.length === 0) {
-        drawEmptyCanvasState(canvas, "Chưa có dữ liệu phiên Benchmark — Hãy chạy ít nhất 1 mô hình");
+        drawEmptyCanvasState(canvas, "Chưa có dữ liệu phiên Benchmark");
         return;
       }
 
@@ -2987,48 +3104,36 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, W, H);
 
-      const padTop = 76;
-      const padBottom = 115;
-      const padLeft = 115;
-      const padRight = 50;
+      const padTop = 68;
+      const padBottom = 96;
+      const padLeft = 104;
+      const padRight = 44;
       const plotW = W - padLeft - padRight;
       const plotH = H - padTop - padBottom;
 
-      // Legend at top (no chart title)
-      const legendFont = "600 22px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif";
-      ctx.font = legendFont;
-      let totalLegendW = 0;
-      const itemWidths = seriesList.map(s => {
-        const w = 28 + 10 + ctx.measureText(s.label).width;
-        totalLegendW += w;
-        return w;
-      });
-      totalLegendW += Math.max(0, seriesList.length - 1) * 36;
-      let curLegendX = (W - totalLegendW) / 2;
-      const legendY = 34;
-
-      seriesList.forEach((s, idx) => {
-        ctx.fillStyle = s.color;
-        ctx.beginPath();
-        ctx.roundRect(curLegendX, legendY - 12, 26, 20, 5);
-        ctx.fill();
-        ctx.fillStyle = "#1d1d1f";
-        ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        ctx.fillText(s.label, curLegendX + 36, legendY - 2);
-        curLegendX += itemWidths[idx] + 36;
-      });
+      // Compact legend indicator at top-left (no title)
+      ctx.font = "600 20px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif";
+      const legendX = padLeft;
+      const legendY = 30;
+      ctx.fillStyle = barColor;
+      ctx.beginPath();
+      ctx.roundRect(legendX, legendY - 10, 22, 18, 5);
+      ctx.fill();
+      ctx.fillStyle = "#1d1d1f";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(legendLabel, legendX + 30, legendY - 1);
 
       // Y-axis gridlines & labels
       const steps = 5;
-      ctx.font = "500 20px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif";
+      ctx.font = "500 18px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif";
       for (let i = 0; i <= steps; i++) {
         const ratio = i / steps;
         const val = yMax * (1 - ratio);
         const y = padTop + ratio * plotH;
 
         ctx.strokeStyle = i === steps ? "#8e8e93" : "#e5e5ea";
-        ctx.lineWidth = i === steps ? 2.5 : 1.5;
+        ctx.lineWidth = i === steps ? 2.2 : 1.3;
         ctx.beginPath();
         ctx.moveTo(padLeft, y);
         ctx.lineTo(padLeft + plotW, y);
@@ -3038,96 +3143,140 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
         ctx.textAlign = "right";
         ctx.textBaseline = "middle";
         const tickStr = decimals <= 1 ? val.toFixed(decimals === 0 ? 0 : 1) : val.toFixed(2);
-        ctx.fillText(tickStr + yUnit, padLeft - 16, y);
+        ctx.fillText(tickStr + yUnit, padLeft - 14, y);
       }
 
       // Bars
       const nGroups = rows.length;
-      const nSeries = seriesList.length;
       const groupStep = plotW / nGroups;
-      const maxGroupW = Math.min(groupStep * 0.72, nSeries * 92);
-      const barGap = nSeries > 1 ? 10 : 0;
-      const barW = Math.max(22, (maxGroupW - barGap * (nSeries - 1)) / nSeries);
+      const barW = Math.min(groupStep * 0.48, 86);
 
       rows.forEach((row, gIdx) => {
-        const groupCenterX = padLeft + gIdx * groupStep + groupStep / 2;
-        const actualGroupW = nSeries * barW + (nSeries - 1) * barGap;
-        const startX = groupCenterX - actualGroupW / 2;
+        const centerX = padLeft + gIdx * groupStep + groupStep / 2;
+        const rawVal = Number(row[metricKey] || 0);
+        const clampedVal = Math.max(0, Math.min(yMax, rawVal));
+        const barH = (clampedVal / yMax) * plotH * animProgress;
+        const bx = centerX - barW / 2;
+        const by = padTop + plotH - barH;
 
-        seriesList.forEach((s, sIdx) => {
-          const rawVal = Number(row[s.key] || 0);
-          const clampedVal = Math.max(0, Math.min(yMax, rawVal));
-          const barH = (clampedVal / yMax) * plotH;
-          const bx = startX + sIdx * (barW + barGap);
-          const by = padTop + plotH - barH;
+        ctx.fillStyle = barColor;
+        ctx.beginPath();
+        ctx.roundRect(bx, by, barW, Math.max(barH, 3), [7, 7, 0, 0]);
+        ctx.fill();
 
-          ctx.fillStyle = s.color;
-          ctx.beginPath();
-          ctx.roundRect(bx, by, barW, Math.max(barH, 3), [6, 6, 0, 0]);
-          ctx.fill();
-
-          // Value label above bar
+        if (animProgress > 0.65) {
+          ctx.save();
+          ctx.globalAlpha = Math.min(1.0, (animProgress - 0.65) / 0.35);
           ctx.fillStyle = "#1d1d1f";
           ctx.font = "600 18px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif";
           ctx.textAlign = "center";
           ctx.textBaseline = "bottom";
-          ctx.fillText(rawVal.toFixed(decimals) + yUnit, bx + barW / 2, by - 7);
-        });
+          ctx.fillText(rawVal.toFixed(decimals) + yUnit, centerX, by - 7);
+          ctx.restore();
+        }
 
-        // X-axis model label
         const label = shortModelLabel(row.model);
         ctx.fillStyle = "#1d1d1f";
-        ctx.font = "600 20px 'SF Mono', 'Menlo', monospace";
+        ctx.font = "600 18px 'SF Mono', 'Menlo', monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
-        ctx.fillText(label, groupCenterX, padTop + plotH + 20);
+        ctx.fillText(label, centerX, padTop + plotH + 16);
       });
 
       ctx.restore();
     }
 
-    function renderAllVisualizations(rows) {
+    function renderAllVisualizations(rows, animProgress = 1.0) {
       const list = rows || [];
-      drawGroupedBarChartNoTitle(
-        "vizCanvasCore",
+      drawSingleBarChartNoTitle(
+        "vizCanvasAcc",
         list,
-        [
-          { key: "acc_at_0", label: "Acc@0 (%) ↑", color: "#0066cc" },
-          { key: "aspect_macro_f1", label: "6-Aspect F1 (%) ↑", color: "#196f3d" },
-          { key: "rationale_f1", label: "Rationale F1 (%) ↑", color: "#d35400" }
-        ],
+        "acc_at_0",
+        "Acc@0 (%) ↑",
+        "#0066cc",
         100,
         "%",
-        2
+        2,
+        animProgress
+      );
+
+      drawSingleBarChartNoTitle(
+        "vizCanvasAspectF1",
+        list,
+        "aspect_macro_f1",
+        "6-Aspect F1 (%) ↑",
+        "#196f3d",
+        100,
+        "%",
+        2,
+        animProgress
+      );
+
+      drawSingleBarChartNoTitle(
+        "vizCanvasRationaleF1",
+        list,
+        "rationale_f1",
+        "Rationale F1 (%) ↑",
+        "#d35400",
+        100,
+        "%",
+        2,
+        animProgress
       );
 
       const maxLeak = list.length > 0
         ? Math.max(20, Math.ceil(Math.max(...list.map(r => Number(r.leakage_rate || 0))) * 1.25 / 10) * 10)
         : 100;
-      drawGroupedBarChartNoTitle(
+      drawSingleBarChartNoTitle(
         "vizCanvasLeakage",
         list,
-        [
-          { key: "leakage_rate", label: "Leakage (%) ↓", color: "#c0392b" }
-        ],
+        "leakage_rate",
+        "Leakage (%) ↓",
+        "#c0392b",
         Math.min(100, maxLeak),
         "%",
-        2
+        2,
+        animProgress
       );
 
       const maxMae = list.length > 0
         ? Math.max(0.5, Math.ceil(Math.max(...list.map(r => Number(r.macro_mae || 0))) * 1.25 * 10) / 10)
         : 1.0;
-      drawGroupedBarChartNoTitle(
+      drawSingleBarChartNoTitle(
         "vizCanvasMae",
         list,
-        [
-          { key: "macro_mae", label: "Macro-MAE ↓", color: "#6c3483" }
-        ],
+        "macro_mae",
+        "Macro-MAE ↓",
+        "#6c3483",
         maxMae,
         "",
-        4
+        4,
+        animProgress
       );
+    }
+
+    function animateVisualizations(rows) {
+      if (vizAnimFrameId) {
+        cancelAnimationFrame(vizAnimFrameId);
+        vizAnimFrameId = null;
+      }
+      if (!rows || rows.length === 0) {
+        renderAllVisualizations([], 1.0);
+        return;
+      }
+      const duration = 520;
+      const startTime = performance.now();
+      function step(now) {
+        const t = Math.min(1.0, (now - startTime) / duration);
+        const eased = 1 - Math.pow(1 - t, 4);
+        renderAllVisualizations(rows, eased);
+        if (t < 1.0) {
+          vizAnimFrameId = requestAnimationFrame(step);
+        } else {
+          vizAnimFrameId = null;
+        }
+      }
+      vizAnimFrameId = requestAnimationFrame(step);
     }
 
     async function saveSingleChart(canvasId, defaultFilename) {
@@ -3135,7 +3284,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
         alert("Chưa có dữ liệu Benchmark trong phiên hiện tại. Vui lòng chạy Benchmark ít nhất 1 mô hình trước khi xuất ảnh.");
         return;
       }
-      renderAllVisualizations(currentBenchmarkRows);
+      renderAllVisualizations(currentBenchmarkRows, 1.0);
       const canvas = document.getElementById(canvasId);
       if (!canvas) return;
       const dataUrl = canvas.toDataURL("image/png");
@@ -3153,7 +3302,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
         alert(data.error || "Không thể lưu hình ảnh.");
         return;
       }
-      document.getElementById("vizStatusNote").textContent = "Đã lưu ảnh tại: " + data.saved_path;
+      document.getElementById("vizStatusNote").textContent = "Đã lưu: " + data.saved_path;
     }
 
     async function exportAllVizImages() {
@@ -3161,11 +3310,19 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
         alert("Chưa có dữ liệu Benchmark trong phiên hiện tại. Vui lòng chạy Benchmark ít nhất 1 mô hình trước khi xuất ảnh.");
         return;
       }
-      renderAllVisualizations(currentBenchmarkRows);
+      renderAllVisualizations(currentBenchmarkRows, 1.0);
       const images = [
         {
-          filename: "benchmark_core_metrics.png",
-          data_url: document.getElementById("vizCanvasCore").toDataURL("image/png")
+          filename: "benchmark_acc_at_0.png",
+          data_url: document.getElementById("vizCanvasAcc").toDataURL("image/png")
+        },
+        {
+          filename: "benchmark_aspect_f1.png",
+          data_url: document.getElementById("vizCanvasAspectF1").toDataURL("image/png")
+        },
+        {
+          filename: "benchmark_rationale_f1.png",
+          data_url: document.getElementById("vizCanvasRationaleF1").toDataURL("image/png")
         },
         {
           filename: "benchmark_leakage.png",
@@ -3187,7 +3344,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
         alert(data.error || "Không thể lưu các hình ảnh.");
         return;
       }
-      document.getElementById("vizStatusNote").textContent = "Đã lưu " + (data.saved_files ? data.saved_files.length : 3) + " ảnh vào thư mục: " + data.saved_dir;
+      document.getElementById("vizStatusNote").textContent = "Đã lưu " + (data.saved_files ? data.saved_files.length : 5) + " ảnh tại: " + data.saved_dir;
     }
 
     function updateSelectedFileUI(modelInfo) {
