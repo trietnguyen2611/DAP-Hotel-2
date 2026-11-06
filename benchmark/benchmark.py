@@ -164,16 +164,80 @@ ASPECT_ID_MAP["None"] = 0
 
 MODEL_EXTENSIONS = {".pt", ".pth", ".bin", ".safetensors"}
 LOADED_MODEL_CACHE: Dict[str, Any] = {}
+CURRENT_MODEL_DIR: Optional[Path] = None
+
+
+def get_default_model_dir() -> Path:
+    cwd_model = Path.cwd() / "model"
+    script_model = Path(__file__).resolve().parent / "model"
+    parent_model = Path(__file__).resolve().parent.parent / "model"
+    for candidate in (cwd_model, script_model, parent_model):
+        if candidate.exists() and candidate.is_dir():
+            return candidate.resolve()
+    return cwd_model.resolve()
 
 
 def get_model_dir() -> Path:
-    cwd_model = Path.cwd() / "model"
-    script_model = Path(__file__).resolve().parent / "model"
-    if cwd_model.exists():
-        return cwd_model
-    if script_model.exists():
-        return script_model
-    return cwd_model
+    global CURRENT_MODEL_DIR
+    if CURRENT_MODEL_DIR is None:
+        CURRENT_MODEL_DIR = get_default_model_dir()
+    return CURRENT_MODEL_DIR
+
+
+def set_model_dir(dir_path_str: str) -> Tuple[bool, str, Path]:
+    global CURRENT_MODEL_DIR
+    cleaned = str(dir_path_str or "").strip().strip('"').strip("'")
+    if not cleaned:
+        return False, "Vui lòng nhập hoặc chọn đường dẫn thư mục chứa model.", get_model_dir()
+    p = Path(cleaned).expanduser()
+    if not p.is_absolute():
+        p = (Path.cwd() / p).resolve()
+    else:
+        p = p.resolve()
+    if p.is_file():
+        p = p.parent
+    if not p.exists() or not p.is_dir():
+        return False, f"Thư mục không tồn tại: {p}", get_model_dir()
+    CURRENT_MODEL_DIR = p
+    CHECKPOINT_METRICS_CACHE.clear()
+    LOADED_MODEL_CACHE.clear()
+    return True, "OK", CURRENT_MODEL_DIR
+
+
+def choose_directory_dialog() -> Optional[str]:
+    initial_dir = str(get_model_dir()) if get_model_dir().exists() else str(Path.cwd())
+    if sys.platform == "darwin":
+        try:
+            import subprocess
+            escaped_dir = initial_dir.replace('"', '\\"')
+            script = (
+                f'try\n'
+                f'  set defaultDir to POSIX file "{escaped_dir}" as alias\n'
+                f'  set chosenFolder to choose folder with prompt "Chọn thư mục chứa model:" default location defaultDir\n'
+                f'on error\n'
+                f'  set chosenFolder to choose folder with prompt "Chọn thư mục chứa model:"\n'
+                f'end try\n'
+                f'POSIX path of chosenFolder'
+            )
+            proc = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=120)
+            if proc.returncode == 0 and proc.stdout.strip():
+                return proc.stdout.strip()
+            return None
+        except Exception:
+            pass
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        selected = filedialog.askdirectory(initialdir=initial_dir, title="Chọn thư mục chứa model")
+        root.destroy()
+        if selected:
+            return str(selected)
+    except Exception:
+        pass
+    return None
 
 
 def scan_available_models() -> List[Dict[str, Any]]:
@@ -188,7 +252,7 @@ def scan_available_models() -> List[Dict[str, Any]]:
             size_label = f"{size_mb:.2f} MB" if size_mb >= 0.1 else f"{max(1, int(stat.st_size / 1024))} KB"
             models_found.append({
                 "filename": p.name,
-                "rel_path": f"model/{p.name}",
+                "rel_path": str(p),
                 "abs_path": str(p.resolve()),
                 "size_label": size_label
             })
@@ -694,12 +758,13 @@ CHECKPOINT_METRICS_CACHE: Dict[str, Any] = {}
 
 
 def load_and_calibrate_model_metrics(model_name: str) -> Optional[Dict[str, Any]]:
-    if model_name in CHECKPOINT_METRICS_CACHE:
-        return CHECKPOINT_METRICS_CACHE[model_name]
-
     model_path = get_model_dir() / model_name
     if not model_path.exists():
         return None
+
+    cache_key = str(model_path.resolve())
+    if cache_key in CHECKPOINT_METRICS_CACHE:
+        return CHECKPOINT_METRICS_CACHE[cache_key]
 
     epoch_val = "-"
     raw_metrics = {}
@@ -774,17 +839,19 @@ def load_and_calibrate_model_metrics(model_name: str) -> Optional[Dict[str, Any]
         "rationale_f1": round(rat_f1, 2),
         "leakage_rate": round(leak, 2)
     }
-    CHECKPOINT_METRICS_CACHE[model_name] = result
+    CHECKPOINT_METRICS_CACHE[cache_key] = result
     return result
 
 
 def get_benchmark_data(selected_model_name: str) -> Dict[str, Any]:
+    cur_dir = get_model_dir()
     models = scan_available_models()
     if not models:
         return {
             "has_model": False,
             "selected_model": None,
-            "message": "Không có mô hình trong thư mục model/.",
+            "model_dir": str(cur_dir),
+            "message": f"Không có mô hình hợp lệ trong thư mục: {cur_dir}",
             "metrics": None,
             "rows": []
         }
@@ -828,6 +895,7 @@ def get_benchmark_data(selected_model_name: str) -> Dict[str, Any]:
     return {
         "has_model": True,
         "selected_model": selected_model_name,
+        "model_dir": str(cur_dir),
         "message": "OK",
         "metrics": selected_metrics,
         "rows": all_rows
@@ -843,15 +911,16 @@ def evaluate_new_review(review_text: str, model_name: str) -> Dict[str, Any]:
             "formatted_text": ""
         }
 
+    cur_dir = get_model_dir()
     models = scan_available_models()
     if not models or not model_name:
         return {
             "ok": False,
-            "error": "Không có mô hình trong thư mục model/.",
-            "formatted_text": "Không có mô hình trong thư mục model/."
+            "error": f"Không có mô hình trong thư mục: {cur_dir}",
+            "formatted_text": f"Không có mô hình trong thư mục: {cur_dir}"
         }
 
-    model_path = get_model_dir() / model_name
+    model_path = cur_dir / model_name
     if not model_path.exists():
         return {
             "ok": False,
@@ -867,7 +936,8 @@ def evaluate_new_review(review_text: str, model_name: str) -> Dict[str, Any]:
         }
 
     try:
-        if model_name not in LOADED_MODEL_CACHE:
+        cache_key = str(model_path.resolve())
+        if cache_key not in LOADED_MODEL_CACHE:
             ckpt = torch.load(model_path, map_location=DEVICE, weights_only=False)
             if not isinstance(ckpt, dict) or "model_state_dict" not in ckpt:
                 return {
@@ -908,7 +978,7 @@ def evaluate_new_review(review_text: str, model_name: str) -> Dict[str, Any]:
             }
             net.load_state_dict(compat_sd, strict=False)
             net.eval()
-            LOADED_MODEL_CACHE[model_name] = {
+            LOADED_MODEL_CACHE[cache_key] = {
                 "arch": arch,
                 "ckpt": ckpt,
                 "model": net,
@@ -917,7 +987,7 @@ def evaluate_new_review(review_text: str, model_name: str) -> Dict[str, Any]:
                 "feat_std": ckpt.get("feat_std", None)
             }
 
-        bundle = LOADED_MODEL_CACHE[model_name]
+        bundle = LOADED_MODEL_CACHE[cache_key]
         arch = bundle["arch"]
         ckpt = bundle["ckpt"]
         net = bundle["model"]
@@ -1253,6 +1323,24 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       outline: none;
     }
 
+    .apple-input {
+      font-family: var(--font-text);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--ink);
+      background-color: var(--surface-pearl);
+      border: 1px solid var(--hairline);
+      border-radius: var(--rounded-md);
+      padding: 9px 14px;
+      min-width: 300px;
+      outline: none;
+    }
+
+    .apple-input:focus {
+      border-color: var(--primary-focus);
+      background-color: var(--canvas);
+    }
+
     .btn {
       display: inline-flex;
       align-items: center;
@@ -1383,14 +1471,6 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
   <div class="sub-nav-frosted">
     <div class="sub-nav-title">Benchmark</div>
     <div class="sub-nav-controls">
-      <button class="btn btn-outline" onclick="refreshModels()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="23 4 23 10 17 10"></polyline>
-          <polyline points="1 20 1 14 7 14"></polyline>
-          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-        </svg>
-        <span>Quét Model</span>
-      </button>
       <button class="btn btn-primary" onclick="exportCSV()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -1431,6 +1511,26 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
 
     <main class="main-stage">
       <div class="control-bar">
+        <div class="control-group" style="flex: 1; min-width: 340px;">
+          <span class="control-label">Thư mục Model:</span>
+          <input
+            type="text"
+            id="modelDirInput"
+            class="apple-input"
+            style="flex: 1;"
+            placeholder="Nhập đường dẫn thư mục chứa model..."
+            onkeydown="if(event.key==='Enter'){applyManualModelDir();}"
+          />
+          <button class="btn btn-outline" onclick="browseModelDir()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span>Chọn thư mục</span>
+          </button>
+          <button class="btn btn-outline" onclick="applyManualModelDir()">
+            <span>Mở đường dẫn</span>
+          </button>
+        </div>
         <div class="control-group">
           <span class="control-label">Model:</span>
           <select id="modelSelect" class="apple-select" onchange="onModelChange()"></select>
@@ -1519,6 +1619,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
   <script>
     let availableModels = [];
     let currentSelectedModel = "";
+    let isExportingCSV = false;
 
     function switchTab(tabId) {
       document.querySelectorAll(".nav-item").forEach(el => el.classList.remove("active"));
@@ -1527,10 +1628,12 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       document.getElementById("panel-" + tabId).classList.add("active");
     }
 
-    async function refreshModels() {
-      const res = await fetch("/api/models");
-      const data = await res.json();
-      availableModels = data.models || [];
+    function updateModelDropdown(models, modelDir) {
+      if (modelDir !== undefined && modelDir !== null) {
+        const dirInput = document.getElementById("modelDirInput");
+        if (dirInput) dirInput.value = modelDir;
+      }
+      availableModels = models || [];
       const selectEl = document.getElementById("modelSelect");
       selectEl.innerHTML = "";
 
@@ -1552,6 +1655,45 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
         }
         selectEl.value = currentSelectedModel;
       }
+    }
+
+    async function loadInitialModels() {
+      const res = await fetch("/api/models");
+      const data = await res.json();
+      updateModelDropdown(data.models || [], data.model_dir || "");
+      await loadBenchmarkData();
+    }
+
+    async function browseModelDir() {
+      const res = await fetch("/api/browse_model_dir", { method: "POST" });
+      const data = await res.json();
+      if (data.cancelled) {
+        return;
+      }
+      if (!data.ok) {
+        if (data.error) alert(data.error);
+        return;
+      }
+      currentSelectedModel = "";
+      updateModelDropdown(data.models || [], data.model_dir || "");
+      await loadBenchmarkData();
+    }
+
+    async function applyManualModelDir() {
+      const dirInput = document.getElementById("modelDirInput");
+      const rawPath = dirInput ? dirInput.value.trim() : "";
+      const res = await fetch("/api/set_model_dir", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_dir: rawPath })
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || "Thư mục không hợp lệ.");
+        return;
+      }
+      currentSelectedModel = "";
+      updateModelDropdown(data.models || [], data.model_dir || "");
       await loadBenchmarkData();
     }
 
@@ -1565,6 +1707,11 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
       const data = await res.json();
       const tbody = document.getElementById("benchmarkTableBody");
       tbody.innerHTML = "";
+
+      if (data.model_dir) {
+        const dirInput = document.getElementById("modelDirInput");
+        if (dirInput && !dirInput.value) dirInput.value = data.model_dir;
+      }
 
       if (!data.has_model || !data.metrics) {
         document.getElementById("kpiAcc").textContent = "-";
@@ -1602,7 +1749,15 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
     }
 
     function exportCSV() {
-      window.location.href = "/api/export_csv?model=" + encodeURIComponent(currentSelectedModel || "");
+      if (isExportingCSV) return;
+      isExportingCSV = true;
+      const a = document.createElement("a");
+      a.href = "/api/export_csv?model=" + encodeURIComponent(currentSelectedModel || "");
+      a.download = "benchmark.csv";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => { isExportingCSV = false; }, 1000);
     }
 
     async function runModelPrediction() {
@@ -1628,7 +1783,7 @@ APPLE_GUI_HTML = r"""<!DOCTYPE html>
     }
 
     window.addEventListener("DOMContentLoaded", () => {
-      refreshModels();
+      loadInitialModels();
     });
   </script>
 </body>
@@ -1668,7 +1823,10 @@ class BenchmarkRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/api/models":
             models = scan_available_models()
-            self._send_json({"models": models})
+            self._send_json({
+                "model_dir": str(get_model_dir()),
+                "models": models
+            })
             return
 
         if path == "/api/benchmark":
@@ -1680,10 +1838,9 @@ class BenchmarkRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/export_csv":
             sel = qs.get("model", [""])[0]
             csv_bytes = generate_csv_bytes(sel)
-            safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", sel or "none")
             self.send_response(200)
             self.send_header("Content-Type", "text/csv; charset=utf-8")
-            self.send_header("Content-Disposition", f'attachment; filename="benchmark_{safe_name}.csv"')
+            self.send_header("Content-Disposition", 'attachment; filename="benchmark.csv"')
             self.send_header("Content-Length", str(len(csv_bytes)))
             self.end_headers()
             self.wfile.write(csv_bytes)
@@ -1693,6 +1850,43 @@ class BenchmarkRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/api/browse_model_dir":
+            chosen = choose_directory_dialog()
+            if not chosen:
+                self._send_json({"ok": False, "cancelled": True})
+                return
+            ok, msg, new_dir = set_model_dir(chosen)
+            if not ok:
+                self._send_json({"ok": False, "error": msg, "model_dir": str(new_dir)}, status=400)
+                return
+            models = scan_available_models()
+            self._send_json({
+                "ok": True,
+                "model_dir": str(new_dir),
+                "models": models
+            })
+            return
+
+        if parsed.path == "/api/set_model_dir":
+            length = int(self.headers.get("Content-Length", "0"))
+            raw_body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+            try:
+                req = json.loads(raw_body)
+            except Exception:
+                req = {}
+            dir_str = req.get("model_dir", "")
+            ok, msg, new_dir = set_model_dir(dir_str)
+            if not ok:
+                self._send_json({"ok": False, "error": msg, "model_dir": str(new_dir)}, status=400)
+                return
+            models = scan_available_models()
+            self._send_json({
+                "ok": True,
+                "model_dir": str(new_dir),
+                "models": models
+            })
+            return
+
         if parsed.path == "/api/predict":
             length = int(self.headers.get("Content-Length", "0"))
             raw_body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
@@ -1721,9 +1915,13 @@ def find_free_port(preferred: int = 8765) -> int:
 def main():
     parser = argparse.ArgumentParser(description="CRAM-ABSA Benchmark GUI")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--model-dir", type=str, default="")
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
+
+    if args.model_dir:
+        set_model_dir(args.model_dir)
 
     port = find_free_port(args.port)
     server = ThreadedHTTPServer(("127.0.0.1", port), BenchmarkRequestHandler)
