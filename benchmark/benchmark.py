@@ -379,6 +379,14 @@ if TORCH_AVAILABLE:
                 for _ in range(num_aspects)
             ])
 
+            self.corn_head = nn.Sequential(
+                nn.Linear(hidden_dim * 2, proj_dim),
+                nn.LayerNorm(proj_dim),
+                nn.GELU(),
+                nn.Dropout(0.20),
+                nn.Linear(proj_dim, 2)
+            )
+
             self.commentary_gru = nn.GRU(input_size=hidden_dim, hidden_size=hidden_dim, num_layers=1, batch_first=True)
             self.commentary_out = nn.Linear(hidden_dim, self.vocab_size, bias=False)
             self.commentary_out.weight = self.bert.embeddings.word_embeddings.weight
@@ -408,16 +416,18 @@ if TORCH_AVAILABLE:
                     key_padding_mask=(attention_mask == 0),
                     need_weights=True
                 )
-                rationale_logits = bilinear_scores + cosine_scores + torch.log(cross_attn_weights.clamp(min=1e-6)) + self.rationale_bias
+                valid_len = attention_mask.sum(dim=-1, keepdim=True).unsqueeze(1).float().clamp(min=1.0)
+                rel_attn = (cross_attn_weights * valid_len).clamp(min=1e-4)
+                raw_rat_logits = bilinear_scores + cosine_scores + 0.5 * torch.log(rel_attn) + self.rationale_bias
             else:
                 cross_ctx = None
-                rationale_logits = bilinear_scores + cosine_scores + self.rationale_bias
+                raw_rat_logits = bilinear_scores + cosine_scores + self.rationale_bias
 
             pad_mask = attention_mask.unsqueeze(1).float()
-            rationale_probs = torch.sigmoid(rationale_logits) * pad_mask
+            raw_rat_probs = torch.sigmoid(raw_rat_logits) * pad_mask
 
-            denom = rationale_probs.sum(dim=-1, keepdim=True).clamp(min=1e-4)
-            rat_pooled = torch.einsum("bal,bld->bad", rationale_probs, conditioned_seq) / denom
+            denom = raw_rat_probs.sum(dim=-1, keepdim=True).clamp(min=1e-4)
+            rat_pooled = torch.einsum("bal,bld->bad", raw_rat_probs, conditioned_seq) / denom
             masked_pooled = 0.55 * rat_pooled + 0.45 * cross_ctx if cross_ctx is not None else rat_pooled
 
             aspect_logits_list = []
@@ -426,11 +436,19 @@ if TORCH_AVAILABLE:
                 aspect_logits_list.append(self.aspect_classifiers[a_idx](asp_ctx))
 
             aspect_logits = torch.stack(aspect_logits_list, dim=1)
+            asp_present_logit = (aspect_logits[:, :, 1:].logsumexp(dim=-1, keepdim=True) - aspect_logits[:, :, 0:1]).detach()
+            rationale_logits = raw_rat_logits + 0.35 * asp_present_logit.clamp(min=-6.0, max=4.0)
+            rationale_probs = torch.sigmoid(rationale_logits) * pad_mask
+
+            global_aspect_ctx = masked_pooled.mean(dim=1)
+            corn_input = torch.cat([conditioned_cls, global_aspect_ctx], dim=-1)
+            corn_logits = self.corn_head(corn_input)
 
             return {
                 "aspect_logits": aspect_logits,
                 "rationale_logits": rationale_logits,
                 "rationale_probs": rationale_probs,
+                "corn_logits": corn_logits,
                 "aspect_embeddings": masked_pooled,
                 "seq_hidden": conditioned_seq
             }
@@ -707,9 +725,11 @@ def load_and_calibrate_model_metrics(model_name: str) -> Optional[Dict[str, Any]
     rat_f1 = float(raw_metrics.get("rationale_f1", 0.0))
     leak = float(raw_metrics.get("leakage_rate", 0.0))
 
-    has_old_star_head = any(
+    corn_w_tensor = state_dict.get("corn_head.4.weight")
+    has_5star_corn = (corn_w_tensor is not None and hasattr(corn_w_tensor, "shape") and len(corn_w_tensor.shape) > 0 and corn_w_tensor.shape[0] == 4)
+    has_old_star_head = has_5star_corn or any(
         k in state_dict
-        for k in ("corn_head.4.weight", "review_star_head.3.weight", "star_fc.weight")
+        for k in ("aspect_star_heads.0.4.weight", "review_star_head.3.weight", "star_fc.weight")
     )
     is_legacy = (has_old_star_head or asp_f1 < 80.0 or rat_f1 < 70.0 or mae > 0.160 or vloss > 0.55)
 
@@ -881,7 +901,12 @@ def evaluate_new_review(review_text: str, model_name: str) -> Dict[str, Any]:
                 net = CRAM_ABSA_MultiAspectModel(num_features=in_feat, use_cross_attn=has_cross).to(DEVICE)
                 arch = "cram_absa"
 
-            net.load_state_dict(ckpt["model_state_dict"], strict=False)
+            model_sd = net.state_dict()
+            compat_sd = {
+                k: v for k, v in ckpt["model_state_dict"].items()
+                if k in model_sd and hasattr(v, "shape") and v.shape == model_sd[k].shape
+            }
+            net.load_state_dict(compat_sd, strict=False)
             net.eval()
             LOADED_MODEL_CACHE[model_name] = {
                 "arch": arch,
