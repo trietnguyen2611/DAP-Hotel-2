@@ -49,3 +49,4 @@ env/
 model/
 .agents/
 graphify-out
+benchmark/benchmark.csv
