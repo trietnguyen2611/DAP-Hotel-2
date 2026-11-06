@@ -1,5 +1,0 @@
-﻿Model,Epoch,Test Loss,Acc@0 (%),6-Aspect Macro-F1 (%),Macro-MAE,Rationale F1 (%),Leakage (%)
-Proposed Method,5,0.2552,92.39,72.55,0.352,70.84,0.24
-Method 1,3,0.5143,92.29,52.55,0.4823,50.66,0.02
-Method 4,8,0.6032,91.69,44.22,0.6743,32.65,54.47
-Method 9,6,0.5227,92.59,52.12,0.4756,9.77,0.22

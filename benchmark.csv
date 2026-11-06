@@ -1,5 +1,0 @@
-﻿Model,Epoch,Test Loss,Acc@0 (%),6-Aspect Macro-F1 (%),Macro-MAE,Rationale F1 (%),Leakage (%)
-model lần 2/modelv1.pt,5,0.2552,92.39,72.55,0.352,70.84,0.24
-model lần 2/modelmethod1.pt,3,0.5143,92.29,52.55,0.4823,50.66,0.02
-model lần 2/modelmethod4.pt,8,0.6032,91.69,44.22,0.6743,32.65,54.47
-model lần 2/modelmethod9.pt,6,0.5227,92.59,52.12,0.4756,9.77,0.22
