@@ -88,7 +88,7 @@
 %========================================================
 
 \abstract{
-Phân tích tự động phản hồi khách hàng trong ngành dịch vụ khách sạn đòi hỏi không chỉ khả năng dự đoán điểm xếp hạng tổng quát mà còn phải bóc tách, đánh giá và sinh nhận xét chi tiết trên từng khía cạnh dịch vụ khi tiếp nhận một bài đánh giá mới. Trong nghiên cứu này, chúng tôi phát triển khung kiến trúc học sâu đa nhiệm \textbf{CRAM-ABSA} (\textit{Cross-Aspect Rationale Alignment Model for Aspect-Based Sentiment Analysis}) giữ nguyên nền tảng \textbf{BERT} (\texttt{bert-base-uncased}), kết hợp xử lý ngôn ngữ tự nhiên (\textbf{NLP/NLTK}) có bảo toàn cấu trúc phủ định và cơ chế truy xuất dựa trên nhúng (\textbf{Embedding-Based Retrieval -- EBR}). Khi đưa vào một bài đánh giá khách sạn mới, hệ thống tự động trích xuất vector \textbf{20 đặc trưng định lượng} (bao gồm 17 đặc trưng cấu trúc--cảm xúc--thời gian đã điều chỉnh và 3 đặc trưng ngôn ngữ học NLTK--EBR mới), định vị các đoạn bằng chứng căn cứ (\textit{rationale spans}), dự đoán điểm số thứ bậc 5 mức sao và sinh nhận xét, đánh giá toàn diện trên \textbf{6 khía cạnh chuẩn}: \textit{Service}, \textit{Facility}, \textit{Experience}, \textit{Amenity}, \textit{Loyalty} và \textit{Branding}. Để giải quyết hiện tượng dữ liệu lệch cực đoan (71.55\% đánh giá 5 sao) và rò rỉ căn cứ liên khía cạnh, mô hình tích hợp hàm mất mát thứ bậc có điều kiện (\textbf{CORN Loss}) cùng hình phạt chồng lấn phân đoạn ($\mathcal{L}_{\text{overlap}}$) và được tối ưu hóa huấn luyện song song đa GPU trên cụm \textbf{Kaggle Dual T4x2 (30GB VRAM)} với độ chính xác hỗn hợp FP16. Thực nghiệm kiểm định trên tập dữ liệu \texttt{TripAdvisor\_EN.json} (9,990 bài đánh giá, 54,326 chú thích căn cứ) thông qua bộ công cụ \texttt{benchmark.ipynb} chứng minh hiệu quả vượt trội của CRAM-ABSA trên cả ba câu hỏi nghiên cứu cốt lõi.
+
 }
 
 
@@ -96,7 +96,7 @@ Phân tích tự động phản hồi khách hàng trong ngành dịch vụ khá
 % Keywords
 %========================================================
 \keywords{
-Aspect-Based Sentiment Analysis (ABSA), CRAM-ABSA, BERT Backbone, Embedding-Based Retrieval (EBR), Natural Language Processing (NLTK), Multi-Aspect Review Commentary Generation, Conditional Ordinal Regression (CORN)
+Aspect-Based Sentiment Analysis (ABSA), CRAM-ABSA, BERT Backbone, Embedding-Based Retrieval (EBR), Natural Language Processing (NLP), Multi-Aspect Review Commentary Generation, Conditional Ordinal Regression (CORN)
 }
 
 \maketitle
