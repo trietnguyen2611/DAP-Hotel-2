@@ -1,0 +1,18 @@
+\begin{table}[htbp]
+\centering
+\caption{Quantitative benchmark comparison on the independent test set ($N = 999$ reviews) across RQ1, RQ2, and RQ3 evaluation metrics.}
+\label{tab:benchmark_results}
+\footnotesize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}p{0.24\textwidth}cccccc@{}}
+\toprule
+\textbf{Model / Architecture} & \textbf{Epoch} & \textbf{Loss} $\downarrow$ & \textbf{Acc@0 (\%)} $\uparrow$ & \textbf{6-Asp F1 (\%)} $\uparrow$ & \textbf{Macro-MAE} $\downarrow$ & \textbf{Rat. F1 / Leak.} \\
+\midrule
+Method 1: BERT-ABSA~\cite{bimaputra2023aspect} & 3 & 0.5143 & 92.29 & 52.55 & 0.4823 & 50.66 / \textbf{0.02} \\
+Method 4: KoHA-BM25 + TF-IGM~\cite{namee2023hybrid} & 8 & 0.6032 & 91.69 & 44.22 & 0.6743 & 32.65 / 54.47 \\
+Method 9: WSD-BERT-BiLSTM-GCN~\cite{nadeem2025resolving} & 6 & 0.5227 & \textbf{92.59} & 52.12 & 0.4756 & 9.77 / 0.22 \\
+\midrule
+\textbf{Proposed: CRAM-ABSA (Full)} & \textbf{5} & \textbf{0.2552} & 92.39 & \textbf{72.55} & \textbf{0.3520} & \textbf{70.84} / 0.24 \\
+\bottomrule
+\end{tabular*}
+\end{table}
