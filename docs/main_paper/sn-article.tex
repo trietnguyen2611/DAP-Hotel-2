@@ -56,6 +56,13 @@
 \raggedbottom
 
 %========================================================
+% Compact DOI Display
+%========================================================
+\makeatletter
+\def\doiurl#1{\href{https://doi.org/\detokenize{#1}}{\nolinkurl{doi:\detokenize{#1}}}}
+\makeatother
+
+%========================================================
 % Document
 %========================================================
 \begin{document}
@@ -63,8 +70,7 @@
 %========================================================
 % Title
 %========================================================
-\title[CRAM-ABSA for Automated Six-Aspect Hotel Review Assessment and Commentary Generation]
-{CRAM-ABSA: Contrastive Rationale-Aligned Multi-Task BERT with Embedding-Based Retrieval for Automated Six-Aspect Hotel Review Assessment and Commentary Generation}
+\title[CRAM-ABSA for Aspect-Based Hotel Review Assessment]{CRAM-ABSA: Multi-Task Rationale Alignment for Aspect-Based Hotel Review Assessment}
 
 %========================================================
 % Authors & Affiliations (Springer Nature Standard)
@@ -74,9 +80,6 @@
 \author[1]{\fnm{Nguyen Bui Anh} \sur{Duy}}\email{example@gmail.com}
 \author[1]{\fnm{Bui Danh Huong} \sur{Huong}}\email{example@gmail.com}
 \affil*[1]{\orgname{FPT University}, \orgaddress{\city{Ho Chi Minh City}, \country{Vietnam}}}
-
-
-
 
 %========================================================
 % Abstract
@@ -98,6 +101,7 @@
 
 \subsection{Background and Research Motivation}
 \label{subsec:background}
+% Mapped References: \cite{ref19_tahir2024, ref20_vo2022, ref21_llorens2023, ref26_piriyakul2024}
 
 \subsection{Research Challenges and Knowledge Gaps}
 \label{subsec:problem}
@@ -109,64 +113,85 @@
 \label{subsec:key_contributions}
 
 %========================================================
-% 2. RESEARCH METHODOLOGY
+% 2. RELATED WORK
 %========================================================
-\section{Research Methodology}
-\label{sec:researchmethod}
+\section{Related Work}
+\label{sec:related_work}
 
-\subsection{Research Pipeline Design}
-\label{subsec:researchpipeline}
+\subsection{Aspect-Based Sentiment Analysis in Hospitality}
+\label{subsec:rw_absa_hospitality}
+% Mapped References: \cite{ref01_bimaputra2023, ref04_namee2023, ref05_nawawi2024, ref07_apriliani2020, ref08_ounacer2023, ref09_nadeem2025, ref10_nguyen2023, ref18_brauwers2022, ref25_le2026, ref29_jayanto2022, ref30_tran2026}
 
-\subsection{Data Collection and Corpus Construction}
-\label{subsec:datacollecting}
+\subsection{Rationale Alignment \& Multi-Task Learning}
+\label{subsec:rw_rationale_multitask}
+% Mapped References: \cite{ref06_yu2024, ref13_zhang2022, ref16_shin2024, ref17_perdomo2026, ref27_alghuribi2025, ref28_xia2026}
 
-\subsection{Exploratory Data Analysis and 20-Feature Engineering}
-\label{subsec:datapreprocessing}
-
-\subsection{Problem Statement}
-\label{subsec:problemstatement}
-
-\subsection{Proposed Framework: CRAM-ABSA}
-\label{subsec:proposedmethod}
-
-\subsubsection{Stage 1: Negation-Aware Linguistic Processing (NLTK) and Embedding-Based Retrieval (EBR)}
-\label{subsubsec:stage1}
-
-\subsubsection{Stage 2: Multi-Task CRAM-ABSA (BERT Backbone) for Six-Aspect Assessment and Commentary Generation}
-\label{subsubsec:stage2}
-
-\subsection{Experimental Setup}
-\label{subsec:experimental}
-
-\subsection{Evaluation Metrics}
-\label{subsec:evaluation}
+\subsection{Retrieval-Augmented Text Mining}
+\label{subsec:rw_retrieval_augmented}
+% Mapped References: \cite{ref02_bruni2025, ref14_jeong2024, ref22_aransyah2026, ref23_lewis2020, ref24_reimers2019}
 
 %========================================================
-% 3. RESULTS AND DISCUSSION
+% 3. PROPOSED METHODOLOGY (CRAM-ABSA)
 %========================================================
-\section{Results and Discussion}
-\label{sec:resultanddiscussion}
+\section{Proposed Methodology (CRAM-ABSA)}
+\label{sec:methodology}
+
+\subsection{Problem Formulation \& Research Pipeline Overview}
+\label{subsec:problem_pipeline}
+% Mapped References: \cite{ref03_nakamura2021, ref11_sutherland2020}
+
+\subsection{Stage 1: Negation-Aware Linguistic Processing (NLTK) \& Embedding-Based Retrieval (EBR)}
+\label{subsec:stage1_nltk_ebr}
+% Mapped References: \cite{ref23_lewis2020, ref24_reimers2019}
+
+\subsection{Stage 2: Multi-Task CRAM-ABSA Architecture (BERT Backbone, Contrastive Rationale Alignment, Conditional Ordinal Regression)}
+\label{subsec:stage2_cram_absa}
+% Mapped References: \cite{ref17_perdomo2026, ref30_tran2026}
+
+%========================================================
+% 4. EXPERIMENTAL EVALUATION
+%========================================================
+\section{Experimental Evaluation}
+\label{sec:experimental_evaluation}
+
+\subsection{Dataset Construction, EDA \& 20-Feature Engineering}
+\label{subsec:dataset_eda_features}
+% Mapped References: \cite{ref10_nguyen2023, ref25_le2026}
+
+\subsection{Baseline Models \& Implementation Details (Hyperparameters)}
+\label{subsec:baselines_implementation}
+% Mapped References: \cite{ref01_bimaputra2023, ref07_apriliani2020, ref12_nam2021, ref15_pang2025, ref29_jayanto2022, ref30_tran2026}
+
+\subsection{Evaluation Metrics (Classification, Regression \& Generation Metrics)}
+\label{subsec:evaluation_metrics}
 
 \subsection{Overall Quantitative Benchmark Results}
-\label{subsec:empirical_results}
+\label{subsec:overall_results}
 
 \subsection{Multi-Aspect Assessment and Ordinal Classification Performance (RQ1)}
-\label{subsec:analysis_rq1}
+\label{subsec:rq1_aspect_assessment}
 
 \subsection{Conditional Ordinal Regression and Cross-Aspect Leakage Mitigation (RQ2)}
-\label{subsec:analysis_rq2}
+\label{subsec:rq2_conditional_regression}
 
 \subsection{Six-Aspect Review Commentary Generation with NLTK and EBR (RQ3)}
-\label{subsec:analysis_rq3}
+\label{subsec:rq3_commentary_generation}
 
-\subsection{Discussion and Practical Implications}
+\subsection{Ablation Study}
+\label{subsec:ablation_study}
+
+%========================================================
+% 5. DISCUSSION AND CONCLUSION
+%========================================================
+\section{Discussion and Conclusion}
+\label{sec:discussion_conclusion}
+
+\subsection{Discussion}
 \label{subsec:discussion}
+% Mapped References: \cite{ref13_zhang2022, ref15_pang2025, ref16_shin2024}
 
-%========================================================
-% 4. CONCLUSION
-%========================================================
-\section{Conclusion}
-\label{sec:conclusion}
+\subsection{Conclusion and Future Work}
+\label{subsec:conclusion_future_work}
 
 %========================================================
 % BACKMATTER & DECLARATIONS (Springer Nature Standard)
@@ -180,6 +205,7 @@
 %========================================================
 % REFERENCES
 %========================================================
+\nocite{*}
 \bibliography{sn-bibliography}
 
 \end{document}
