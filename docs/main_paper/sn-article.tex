@@ -107,7 +107,7 @@
 %% Abstract                         %%
 %%==================================%%
 
-\abstract{Understanding customer opinions across distinct service dimensions is vital for hospitality management and traveler decision-making. However, existing aspect-based sentiment analysis (ABSA) systems suffer from three critical shortcomings: (i) severe cross-aspect information leakage when multiple aspects co-occur in the same review, (ii) failure to respect the natural monotonic order of ordinal rating scales, and (iii) poor textual rationale extraction that leads to ungrounded aspect attribution. In this paper, we propose \textbf{CRAM-ABSA}, an end-to-end framework combining a dual-stage linguistic-retrieval pipeline with a multi-task deep neural architecture. In Stage 1, negation-aware linguistic filtering (NLTK) and dense Embedding-Based Retrieval (EBR) isolate aspect-specific text evidence. In Stage 2, a multi-task contextual BERT backbone integrates 20 engineered tabular features via learnable residual gating, using an orthogonal Gram-matrix rationale penalty to eliminate cross-aspect leakage and conditional ordinal regression (CORN) to enforce monotonic rating consistency. Extensive experimental benchmarking on an independent test split of 999 hotel reviews (divided 80/10/10 from 9,990 reviews across six canonical aspects: \textit{Service, Facility, Experience, Amenity, Loyalty, Branding}) demonstrates that CRAM-ABSA achieves the best balanced performance across all models, leading in 4 out of 7 benchmark metrics: achieving the lowest Test Loss of 0.2552 (over 50\% reduction compared to baselines at 0.5143--0.6032), the highest 6-Aspect Macro-F1 of 72.55\% (a +20.00\% absolute gain over BERT-Base, +20.43\% over WSD-BiLSTM-GCN, and +28.33\% over BM25-CNN), the lowest Macro-MAE of 0.3520, and the highest Rationale F1 of 70.84\% (+20.18\% to +61.07\% over baselines). Crucially, CRAM-ABSA suppresses cross-aspect rationale leakage to a negligible 0.24\% (resolving the severe 54.47\% leakage of BM25-CNN) while maintaining 92.39\% Acc@0.}
+\abstract{Understanding customer opinions across distinct service dimensions is vital for hospitality management and traveler decision-making. However, existing aspect-based sentiment analysis (ABSA) systems suffer from three critical shortcomings: (i) severe cross-aspect information leakage when multiple aspects co-occur in the same review, (ii) failure to respect the natural monotonic order of ordinal rating scales, and (iii) poor textual rationale extraction that leads to ungrounded aspect attribution. In this paper, we propose \textbf{CRAM-ABSA}, an end-to-end framework combining a dual-stage linguistic-retrieval pipeline with a multi-task deep neural architecture. In Stage 1, negation-aware linguistic filtering (NLTK) and dense Embedding-Based Retrieval (EBR) isolate aspect-specific text evidence. In Stage 2, a multi-task contextual BERT backbone integrates 20 engineered tabular features via learnable residual gating, using an orthogonal Gram-matrix rationale penalty to eliminate cross-aspect leakage and conditional ordinal regression (CORN) to enforce monotonic rating consistency. Extensive experimental benchmarking on an independent test split of 999 hotel reviews (divided 80/10/10 from 9,990 reviews across six canonical aspects: \textit{Service, Facility, Experience, Amenity, Loyalty, Branding}) demonstrates that CRAM-ABSA achieves the best balanced performance across all models, leading in 4 out of 6 benchmark metrics: achieving the lowest Test Loss of 0.2552 (over 50\% reduction compared to baselines at 0.5143--0.6032), the highest 6-Aspect Macro-F1 of 72.55\% (a +20.00\% absolute gain over BERT-Base, +20.43\% over WSD-BiLSTM-GCN, and +28.33\% over BM25-CNN), the lowest Macro-MAE of 0.3520, and the highest Rationale F1 of 70.84\% (+20.18\% to +61.07\% over baselines). Crucially, CRAM-ABSA suppresses cross-aspect rationale leakage to a negligible 0.24\% (resolving the severe 54.47\% leakage of BM25-CNN) while maintaining 92.39\% Acc@0.}
 
 \keywords{Aspect-Based Sentiment Analysis, Hotel Reviews, Multi-Task Learning, Rationale Alignment, Conditional Ordinal Regression, Embedding-Based Retrieval}
 
@@ -150,7 +150,7 @@ To overcome the aforementioned challenges, this paper presents \textbf{CRAM-ABSA
     \item \textbf{Tabular-Contextual Residual Gating:} We design a 2-layer MLP with a learnable scalar residual gate ($\alpha \approx 0.28$) that injects 20 engineered tabular features directly into BERT contextual hidden vectors without distorting pretrained linguistic geometry.
     \item \textbf{Orthogonal Rationale Masking:} We formulate a pairwise Gram-matrix orthogonality loss on token rationale probability masks that strictly decouples aspect representations in shared sentences, suppressing cross-aspect leakage from 54.47\% (BM25-CNN) down to 0.24\%.
     \item \textbf{Conditional Ordinal Regression (CORN):} We implement global ordinal calibration heads that penalize polarity deviations according to true ordinal distances ($0 < 1 < 2$), substantially cutting Macro-MAE to 0.3520.
-    \item \textbf{Empirical State-of-the-Art Benchmark:} Evaluation on an independent 999-sample test split confirms that CRAM-ABSA delivers superior balanced performance across 7 metrics, achieving a +20.00\% absolute gain in 6-Aspect Macro-F1 (72.55\% vs. 52.55\% for BERT-Base) and a +20.18\% to +61.07\% boost in Rationale F1 (70.84\%).
+    \item \textbf{Empirical State-of-the-Art Benchmark:} Evaluation on an independent 999-sample test split confirms that CRAM-ABSA delivers superior balanced performance across 6 metrics, achieving a +20.00\% absolute gain in 6-Aspect Macro-F1 (72.55\% vs. 52.55\% for BERT-Base) and a +20.18\% to +61.07\% boost in Rationale F1 (70.84\%).
 \end{enumerate}
 
 %========================================================
@@ -167,7 +167,7 @@ Despite these advances, existing baselines exhibit clear shortcomings. BERT-Base
 
 \subsection{Rationale Alignment and Multi-Task Learning}
 \label{subsec:rw_rationale_multitask}
-Multi-task learning allows neural architectures to share generalized contextual representations while optimizing specialized decision heads. In hospitality analytics, customer satisfaction is inherently multi-dimensional: Yu et al. \cite{ref06_yu2024} established that consumer expectations dynamically shift across service dimensions over time. To analyze customer satisfaction asymmetries, Zhang et al. \cite{ref13_zhang2022} applied Penalty-Reward Contrast to distinguish basic requirements from delight factors. In recommender systems, AL-Ghuribi et al. \cite{ref27_alghuribi2025} showed that combining diverse review elements into multi-criteria models enhances preference prediction. To interpret black-box predictions, Shin et al. \cite{ref16_shin2024} used TreeSHAP to uncover service quality priorities, while Xia et al. \cite{ref28_xia2026} combined BERT, Random Forests, and PLS-SEM to trace how discrete emotional expressions influence overall hotel ratings. Linking textual representations with established hospitality frameworks, Perdomo-Verdecia et al. \cite{ref17_perdomo2026} introduced RbQUAL, integrating SERVQUAL dimensions with fine-tuned BERT models. Brand equity studies \cite{ref19_tahir2024,ref26_piriyakul2024} further show that customer loyalty is driven by service perceptions across touchpoints, confirming the necessity of multi-task rationale alignment.
+Multi-task learning allows neural architectures to share generalized contextual representations while optimizing specialized decision heads. In hospitality analytics, customer satisfaction is inherently multi-dimensional: Yu et al. \cite{ref06_yu2024} established that consumer expectations dynamically shift across service dimensions over time. To analyze customer satisfaction asymmetries, Zhang et al. \cite{ref13_zhang2022} applied Penalty-Reward Contrast to distinguish basic requirements from delight factors. In recommender systems, AL-Ghuribi et al. \cite{ref27_alghuribi2025} showed that combining diverse review elements into multi-criteria models enhances preference prediction. To interpret black-box predictions, Shin et al. \cite{ref16_shin2024} used TreeSHAP to uncover service quality priorities, while Xia et al. \cite{ref28_xia2026} combined BERT, Random Forests, and PLS-SEM to trace how discrete emotional expressions influence overall hotel ratings. Linking textual representations with established hospitality frameworks, Perdomo-Verdecia et al. \cite{ref17_perdomo2026} introduced RbQUAL, integrating SERVQUAL dimensions with fine-tuned BERT models. Similarly, Nam et al. \cite{ref12_nam2021} integrated the Outcome-Driven Innovation framework with deep learning on hotel reviews to identify actionable service opportunities. Brand equity studies \cite{ref19_tahir2024,ref26_piriyakul2024} further show that customer loyalty is driven by service perceptions across touchpoints, confirming the necessity of multi-task rationale alignment.
 
 \subsection{Retrieval-Augmented Text Mining}
 \label{subsec:rw_retrieval_augmented}
@@ -190,7 +190,7 @@ Let a customer review be represented as a token sequence $R = (w_1, w_2, \dots, 
 \label{fig:research_pipeline}
 \end{figure}
 
-The complete research workflow is depicted in Fig.~\ref{fig:research_pipeline}, organized into five sequential stages: (1) corpus curation of 9,990 hotel reviews with an 80/10/10 split, (2) exploratory data analysis and 20-feature engineering, (3) Stage 1 negation-aware NLTK processing and dense embedding retrieval, (4) Stage 2 multi-task contextual modeling with orthogonal rationale masking and conditional ordinal regression, and (5) empirical benchmark comparison across seven evaluation metrics.
+The complete research workflow is depicted in Fig.~\ref{fig:research_pipeline}, organized into five sequential stages: (1) corpus curation of 9,990 hotel reviews with an 80/10/10 split, (2) exploratory data analysis and 20-feature engineering, (3) Stage 1 negation-aware NLTK processing and dense embedding retrieval, (4) Stage 2 multi-task contextual modeling with orthogonal rationale masking and conditional ordinal regression, and (5) empirical benchmark comparison across six evaluation metrics.
 
 \subsection{Stage 1: Negation-Aware Linguistic Processing and Embedding Retrieval}
 \label{subsec:stage1_nltk_ebr}
@@ -212,7 +212,7 @@ The Stage 2 architecture comprises a shared BERT contextual backbone, residual f
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.88\textwidth]{chart_img/412_abstract_architecture_of_proposed_method.png}
+\includegraphics[width=0.88\textwidth]{chart_img/412_model_architecture.png}
 \caption{Abstract architecture of the proposed CRAM-ABSA framework, illustrating the integration of Stage 1 negation-aware linguistic filtering and embedding-based retrieval with Stage 2 multi-task BERT encoding, residual 20-feature gating, orthogonal rationale masking, and conditional ordinal regression heads.}
 \label{fig:architecture}
 \end{figure}
@@ -302,7 +302,7 @@ All models are trained and evaluated on the exact same 999-sample independent te
 
 \subsection{Evaluation Metrics}
 \label{subsec:evaluation_metrics}
-We evaluate all models across seven benchmark metrics on the 999-sample test split: (1)~\textbf{Acc@0 (\%) $\uparrow$:} exact-match polarity accuracy (zero ordinal deviation) across aspects and overall review polarity; (2)~\textbf{6-Aspect Macro-F1 (\%) $\uparrow$:} macro-averaged F1 across all six aspects and four discrete states; (3)~\textbf{Macro-MAE $\downarrow$:} ordinal distance error across classes (penalizing rank reversals by 2); (4)~\textbf{Rationale F1 (\%) $\uparrow$:} token-level span overlap F1 with human annotations; (5)~\textbf{Leakage (\%) $\downarrow$:} percentage of tokens assigned to multiple distinct aspects; (6)~\textbf{Test Loss $\downarrow$:} joint multi-task cross-entropy and rationale loss; and (7)~\textbf{Epoch:} best validation checkpoint epoch.
+We evaluate all models across six benchmark metrics on the 999-sample test split: (1)~\textbf{Acc@0 (\%) $\uparrow$:} exact-match polarity accuracy (zero ordinal deviation) across aspects and overall review polarity; (2)~\textbf{6-Aspect Macro-F1 (\%) $\uparrow$:} macro-averaged F1 across all six aspects and four discrete states; (3)~\textbf{Macro-MAE $\downarrow$:} ordinal distance error across classes (penalizing rank reversals by 2); (4)~\textbf{Rationale F1 (\%) $\uparrow$:} token-level span overlap F1 with human annotations; (5)~\textbf{Leakage (\%) $\downarrow$:} percentage of tokens assigned to multiple distinct aspects; and (6)~\textbf{Test Loss $\downarrow$:} joint multi-task cross-entropy and rationale loss.
 
 \subsection{Overall Quantitative Benchmark Results}
 \label{subsec:overall_results}
@@ -312,27 +312,27 @@ Table~\ref{tab:overall_benchmark} presents the quantitative evaluation of CRAM-A
 \caption{Benchmark evaluation results on the independent test split (999 samples). Arrows indicate whether higher ($\uparrow$) or lower ($\downarrow$) values are preferred. Best results across each column are shown in \textbf{bold}.}\label{tab:overall_benchmark}
 \small
 \setlength{\tabcolsep}{3pt}
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lccccccr@{}}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lcccccr@{}}
 \toprule
-\textbf{Model} & \textbf{Epoch} & \textbf{Test} & \textbf{Acc@0} & \textbf{Macro-F1} & \textbf{Macro-} & \textbf{Rat-F1} & \textbf{Leak} \\
-\textbf{Architecture} & & \textbf{Loss} $\downarrow$ & \textbf{(\%)} $\uparrow$ & \textbf{(\%)} $\uparrow$ & \textbf{MAE} $\downarrow$ & \textbf{(\%)} $\uparrow$ & \textbf{(\%)} $\downarrow$ \\
+\textbf{Model} & \textbf{Test} & \textbf{Acc@0} & \textbf{Macro-F1} & \textbf{Macro-} & \textbf{Rat-F1} & \textbf{Leak} \\
+\textbf{Architecture} & \textbf{Loss} $\downarrow$ & \textbf{(\%)} $\uparrow$ & \textbf{(\%)} $\uparrow$ & \textbf{MAE} $\downarrow$ & \textbf{(\%)} $\uparrow$ & \textbf{(\%)} $\downarrow$ \\
 \midrule
-\textbf{CRAM-ABSA (Ours)} & 5 & \textbf{0.2552} & 92.39 & \textbf{72.55} & \textbf{0.3520} & \textbf{70.84} & 0.24 \\
-BERT-Base \cite{ref01_bimaputra2023} & 3 & 0.5143 & 92.29 & 52.55 & 0.4823 & 50.66 & \textbf{0.02} \\
-BM25-CNN \cite{ref04_namee2023} & 8 & 0.6032 & 91.69 & 44.22 & 0.6743 & 32.65 & 54.47 \\
-WSD-BiLSTM-GCN \cite{ref09_nadeem2025} & 6 & 0.5227 & \textbf{92.59} & 52.12 & 0.4756 & 9.77 & 0.22 \\
+\textbf{CRAM-ABSA (Ours)} & \textbf{0.2552} & 92.39 & \textbf{72.55} & \textbf{0.3520} & \textbf{70.84} & 0.24 \\
+BERT-Base \cite{ref01_bimaputra2023} & 0.5143 & 92.29 & 52.55 & 0.4823 & 50.66 & \textbf{0.02} \\
+BM25-CNN \cite{ref04_namee2023} & 0.6032 & 91.69 & 44.22 & 0.6743 & 32.65 & 54.47 \\
+WSD-BiLSTM-GCN \cite{ref09_nadeem2025} & 0.5227 & \textbf{92.59} & 52.12 & 0.4756 & 9.77 & 0.22 \\
 \botrule
 \end{tabular*}
 \end{table}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.88\textwidth]{chart_img/413_benchmark_comparison.png}
-\caption{Benchmark performance comparison on the 999-sample test split across the four evaluated models. Left panel: Quality metrics ($\uparrow$) including Acc@0, 6-Aspect Macro-F1, and Rationale F1. Right panels: Error and leakage metrics ($\downarrow$) including Test Loss, Macro-MAE, and Cross-Aspect Leakage rate.}
+\includegraphics[width=0.85\textwidth]{chart_img/413_benchmark_comparison.png}
+\caption{Quality metric comparison on the 999-sample independent test split across the four evaluated models, covering Acc@0, 6-Aspect Macro-F1, and Rationale F1 (higher $\uparrow$ is better).}
 \label{fig:benchmark_comparison}
 \end{figure}
 
-As documented in Table~\ref{tab:overall_benchmark} and Fig.~\ref{fig:benchmark_comparison}, CRAM-ABSA demonstrates superior balanced performance, leading in 4 out of 7 benchmark metrics:
+As documented in Table~\ref{tab:overall_benchmark} and Fig.~\ref{fig:benchmark_comparison}, CRAM-ABSA demonstrates superior balanced performance, leading in 4 out of 6 benchmark metrics:
 (1)~\textit{Lowest Test Loss (0.2552):} reducing multi-task loss by over 50\% relative to baselines (0.5143--0.6032);
 (2)~\textit{Highest 6-Aspect Macro-F1 (72.55\%):} achieving a +20.00\% absolute gain over BERT-Base (52.55\%), +20.43\% over WSD-BiLSTM-GCN (52.12\%), and +28.33\% over BM25-CNN (44.22\%);
 (3)~\textit{Lowest Macro-MAE (0.3520):} curbing polarity reversals compared to WSD-BiLSTM-GCN (0.4756) and BERT-Base (0.4823);
@@ -356,20 +356,20 @@ Addressing \textbf{RQ2}, we analyze model performance with respect to ordinal di
 \begin{minipage}{0.49\textwidth}
   \centering
   \includegraphics[width=\textwidth]{chart_img/49_cross_aspect_span_overlap.png}
-  \caption{Cross-aspect rationale span overlap rates across hotel reviews.}
+  \caption{Counts of overlapping text coordinate spans across hotel aspect pairs.}
   \label{fig:span_overlap}
 \end{minipage}\hfill
 \begin{minipage}{0.49\textwidth}
   \centering
   \includegraphics[width=\textwidth]{chart_img/45_rationale_length_by_aspect.png}
-  \caption{Distribution of rationale token lengths across the six aspects.}
+  \caption{Distribution of rationale span lengths (in characters) across the six aspects.}
   \label{fig:rationale_length}
 \end{minipage}
 \end{figure}
 
 Regarding ordinal error calibration, CRAM-ABSA achieves a Macro-MAE of 0.3520, outperforming WSD-BiLSTM-GCN (0.4756), BERT-Base (0.4823), and BM25-CNN (0.6743). Conventional classification treats sentiment categories as unrelated nominal classes, meaning that predicting Negative for a Positive review receives the same penalty as predicting Neutral. By decomposing predictions into conditional cumulative probabilities, our conditional ordinal heads constrain errors primarily to adjacent categories, preventing severe polarity inversions.
 
-Regarding cross-aspect leakage, Fig.~\ref{fig:span_overlap} demonstrates that customer reviews frequently discuss multiple aspects within shared sentences, creating high risk for feature entanglement. As reported in Table~\ref{tab:overall_benchmark}, the hybrid BM25-CNN system suffers from an extreme leakage rate of 54.47\%, as keyword-based rules repeatedly assign the same token spans to multiple aspect categories. While BERT-Base achieves a near-zero leakage rate of 0.02\%, it does so because its classification heads operate independently without sharing or extracting rich rationale spans (resulting in a low Rationale F1 of 50.66\%). CRAM-ABSA resolves this trade-off: it achieves a high Rationale F1 of 70.84\% while simultaneously keeping cross-aspect leakage at a negligible 0.24\%, proving that orthogonal rationale masking successfully separates aspect-specific representations.
+Regarding cross-aspect leakage, Fig.~\ref{fig:span_overlap} shows that ground-truth coordinate span overlaps between aspect pairs are rare (8 instances total, led by \textit{Facility} \& \textit{Service} with 2), confirming that distinct aspects generally occupy separate textual evidence spans. As reported in Table~\ref{tab:overall_benchmark}, the hybrid BM25-CNN system suffers from an extreme leakage rate of 54.47\%, as keyword-based rules repeatedly assign the same token spans to multiple aspect categories. While BERT-Base achieves a near-zero leakage rate of 0.02\%, it does so because its classification heads operate independently without sharing or extracting rich rationale spans (resulting in a low Rationale F1 of 50.66\%). CRAM-ABSA resolves this trade-off: it achieves a high Rationale F1 of 70.84\% while simultaneously keeping cross-aspect leakage at a negligible 0.24\%, proving that orthogonal rationale masking successfully separates aspect-specific representations.
 
 \subsection{Evidence-Grounded Rationale Extraction and Attribution (RQ3)}
 \label{subsec:rq3_commentary_generation}
@@ -377,7 +377,7 @@ Addressing \textbf{RQ3}, Table~\ref{tab:overall_benchmark} confirms that CRAM-AB
 
 The low Rationale F1 of WSD-BiLSTM-GCN (9.77\%) stems from its reliance on syntactic trees and word-sense disambiguation without an explicit text evidence extraction mechanism. Similarly, the hybrid baseline (BM25-CNN, 32.65\%) relies on static keyword dictionaries, which fail to capture nuanced contextual rationales and struggle when sentences contain negation.
 
-As illustrated in Fig.~\ref{fig:rationale_length}, factual customer rationales across all six aspects typically span concise sequences of 10 to 30 tokens. Stage 1 in CRAM-ABSA explicitly addresses this structure: negation-aware NLTK tokenization prevents inverted polarities in compound sentences, while dense Embedding-Based Retrieval (EBR) isolates the most semantically relevant text spans matching aspect prototype centroids. Consequently, CRAM-ABSA provides clean, verified evidence spans for each aspect, enabling factually grounded review attribution without synthetic hallucination.
+As illustrated in Fig.~\ref{fig:rationale_length}, factual customer rationales across all six aspects are concise, with median span lengths ranging from roughly 39 to 66 characters. Stage 1 in CRAM-ABSA explicitly addresses this structure: negation-aware NLTK tokenization prevents inverted polarities in compound sentences, while dense Embedding-Based Retrieval (EBR) isolates the most semantically relevant text spans matching aspect prototype centroids. Consequently, CRAM-ABSA provides clean, verified evidence spans for each aspect, enabling factually grounded review attribution without synthetic hallucination.
 
 \subsection{Architectural Analysis and Methodological Discussion}
 \label{subsec:architectural_analysis}
@@ -398,7 +398,7 @@ The empirical results provide actionable implications for hospitality management
 
 \subsection{Conclusion, Limitations and Future Work}
 \label{subsec:conclusion_future_work}
-This paper introduced \textbf{CRAM-ABSA}, a multi-task deep architecture for six-aspect hotel review assessment and rationale extraction. By coupling negation-aware NLTK processing and dense EBR with orthogonal rationale masking, 20-feature residual gating, and conditional ordinal regression, CRAM-ABSA resolves key flaws in baseline models \cite{ref01_bimaputra2023,ref04_namee2023,ref09_nadeem2025}. On the 999-sample test split, CRAM-ABSA leads in 4 of 7 metrics: achieving lowest Test Loss (0.2552), highest 6-Aspect Macro-F1 (72.55\%, a +20\% gain), lowest Macro-MAE (0.3520), and highest Rationale F1 (70.84\%), while suppressing leakage to 0.24\% and keeping 92.39\% Acc@0. A limitation is the single-split evaluation; multi-fold validation and parametric ablation grids remain valuable future directions alongside multilingual transfer across Southeast Asian lodging markets.
+This paper introduced \textbf{CRAM-ABSA}, a multi-task deep architecture for six-aspect hotel review assessment and rationale extraction. By coupling negation-aware NLTK processing and dense EBR with orthogonal rationale masking, 20-feature residual gating, and conditional ordinal regression, CRAM-ABSA resolves key flaws in baseline models \cite{ref01_bimaputra2023,ref04_namee2023,ref09_nadeem2025}. On the 999-sample test split, CRAM-ABSA leads in 4 of 6 metrics: achieving lowest Test Loss (0.2552), highest 6-Aspect Macro-F1 (72.55\%, a +20\% gain), lowest Macro-MAE (0.3520), and highest Rationale F1 (70.84\%), while suppressing leakage to 0.24\% and keeping 92.39\% Acc@0. A limitation is the single-split evaluation; multi-fold validation and parametric ablation grids remain valuable future directions alongside multilingual transfer across Southeast Asian lodging markets.
 
 %========================================================
 % BACKMATTER & DECLARATIONS
