@@ -3,7 +3,7 @@
 Research and application system for multi-aspect hotel review evaluation (**Aspect-Based Sentiment Analysis - ABSA**), rationale sentence extraction, and cross-aspect leakage control based on the **CRAM-ABSA** architecture (*Contrastive Rationale-Aligned Multi-Task Architecture with Embedding-Based Retrieval - EBR*).
 
 - **GitHub Repository:** [https://github.com/trietnguyen2611/CRAM-ABSA-EBR-Hotel-Reviews](https://github.com/trietnguyen2611/CRAM-ABSA-EBR-Hotel-Reviews)
-- **Research Paper:** Springer Nature template (`docs/main_paper/sn-article.tex` -> `sn-article.pdf`)
+- **Research Paper:** Springer Nature template (`docs/main_paper/sn-article.tex` -> `CRAM-ABSA: Multi-Task Rationale Alignment for Aspect-Based Hotel Review Assessment.pdf`)
 
 ---
 
@@ -35,8 +35,7 @@ Research and application system for multi-aspect hotel review evaluation (**Aspe
 ```text
 ├── data/
 │   ├── dataset/         # Original TripAdvisor dataset (TripAdvisor_EN.json - 44MB)
-│   ├── df/              # Processed data: hotel_reviews.parquet (42 columns, 9,990 samples) & chatbot.db (SQLite)
-│   └── chart_img/       # 15+ EDA analysis charts and benchmark comparison figures
+│   └── df/              # Processed data: hotel_reviews.parquet (42 columns, 9,990 samples) & chatbot.db (SQLite)
 ├── train/
 │   ├── train_model/     # Base model training notebook (trainv1.ipynb)
 │   └── train_method/    # Ablation studies and method variants training (trainmethod.ipynb)
@@ -47,7 +46,7 @@ Research and application system for multi-aspect hotel review evaluation (**Aspe
 │   └── benchmark.py     # Web GUI for performance comparison, single-review testing, and visualization
 ├── desktop/             # Commercial Desktop app (Electron + Python Backend + Vanilla CSS/JS)
 ├── docs/
-│   ├── main_paper/      # Springer Nature LaTeX paper source (sn-article.tex, build.sh, .bib)
+│   ├── main_paper/      # Springer Nature LaTeX paper source (sn-article.tex, build.sh, .bib, chart_img/)
 │   ├── src_paper/       # 30 foundational research reference papers (1.pdf -> 30.pdf)
 │   └── Springer_Nature_LaTeX_Template/ # Official Springer Nature template files
 ├── Project.ipynb        # Data preprocessing pipeline, feature extraction, and EDA charts
@@ -93,7 +92,7 @@ Open [Project.ipynb](Project.ipynb) in VSCode or Jupyter Lab to run the preproce
 - Dual-stream text cleaning: combines linguistic lemmatization with BERT token structure preservation.
 - Extract 20 contextual features and 6-aspect rating labels.
 - Export cleaned data to `data/df/hotel_reviews.parquet` (9,990 rows) and save to database `data/df/chatbot.db`.
-- Automatically save all generated charts to `data/chart_img/`.
+- Automatically save all generated charts to `docs/main_paper/chart_img/`.
 
 ### 2. Model Training
 The Jupyter Notebooks in the `train/` directory can run locally (GPU / Apple Silicon MPS / CPU) or on Kaggle / Google Colab:
@@ -141,7 +140,7 @@ bash docs/main_paper/build.sh sn-article.tex
 # Clean up log and temporary files (.aux, .bbl, .blg, .out, .toc,...):
 bash docs/main_paper/build.sh --clean
 ```
-Output PDF file: `docs/main_paper/sn-article.pdf`.
+Output PDF file: `docs/main_paper/CRAM-ABSA: Multi-Task Rationale Alignment for Aspect-Based Hotel Review Assessment.pdf`.
 
 ### 2. Reference Management
 - All **30 reference papers** are stored in `docs/src_paper/` (`1.pdf` to `30.pdf`).

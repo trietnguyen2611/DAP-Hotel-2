@@ -46,6 +46,7 @@ cleanup_aux() {
 if [[ "${1:-}" == "--clean" ]]; then
     JOB_NAME="sn-article"
     cleanup_aux
+    rm -f "${PAPER_DIR}"/*.aux
     echo "✅ Đã xoá toàn bộ các file phụ trợ trong: ${PAPER_DIR}"
     exit 0
 fi
@@ -83,8 +84,13 @@ pdflatex -interaction=nonstopmode -halt-on-error "${TEX_FILE}" >/dev/null
 cleanup_aux
 
 if [[ -f "${JOB_NAME}.pdf" ]]; then
-    PDF_SIZE="$(du -h "${JOB_NAME}.pdf" | cut -f1 | xargs)"
-    echo "✅ Biên dịch hoàn tất: ${PAPER_DIR}/${JOB_NAME}.pdf (${PDF_SIZE})"
+    OUTPUT_PDF="${JOB_NAME}.pdf"
+    if [[ "${TEX_FILE}" == "sn-article.tex" ]]; then
+        OUTPUT_PDF="CRAM-ABSA: Multi-Task Rationale Alignment for Aspect-Based Hotel Review Assessment.pdf"
+        mv -f "${JOB_NAME}.pdf" "${OUTPUT_PDF}"
+    fi
+    PDF_SIZE="$(du -h "${OUTPUT_PDF}" | cut -f1 | xargs)"
+    echo "✅ Biên dịch hoàn tất: ${PAPER_DIR}/${OUTPUT_PDF} (${PDF_SIZE})"
 else
     echo "❌ Biên dịch thất bại: Không tạo được ${JOB_NAME}.pdf"
     exit 1
