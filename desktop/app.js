@@ -514,7 +514,7 @@
             export_version: "2.0-debug",
             exported_at: new Date().toISOString(),
             metadata: {
-                app_name: "DAP-Hotel AI Concierge (CRAM-ABSA Framework)",
+                app_name: "CRAM-ABSA with EBR: Hotel Reviews",
                 conversation_id: conv.id,
                 session_id: conv.sessionId || 'default_session',
                 title: conv.title || 'Conversation',

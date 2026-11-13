@@ -1,8 +1,8 @@
 {
-  "name": "hotel-aspect-ai-desktop",
+  "name": "cram-absa-ebr-hotel-reviews-desktop",
   "version": "1.0.0",
   "private": true,
-  "description": "Hotel Aspect AI native desktop application for macOS and Windows",
+  "description": "CRAM-ABSA with EBR: Hotel Reviews native desktop application for macOS and Windows",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
@@ -17,7 +17,7 @@
   },
   "build": {
     "appId": "com.hotelaspect.qa",
-    "productName": "Hotel Aspect AI",
+    "productName": "CRAM-ABSA Hotel Reviews",
     "directories": {
       "output": "../release"
     },

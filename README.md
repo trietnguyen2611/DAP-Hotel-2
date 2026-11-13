@@ -1,6 +1,8 @@
-# CRAM-ABSA: Hotel Review Assessment & Rationalization
+# CRAM-ABSA with EBR: Hotel Reviews
 
-Dự án nghiên cứu và phát triển hệ thống đánh giá khách sạn đa khía cạnh (Aspect-Based Sentiment Analysis - ABSA), trích xuất bằng chứng (rationale extraction) và sinh bình luận tự động dựa trên mô hình **CRAM-ABSA** (Contrastive Rationale-Aligned Multi-Task BERT).
+Dự án nghiên cứu và phát triển hệ thống đánh giá khách sạn đa khía cạnh (Aspect-Based Sentiment Analysis - ABSA), trích xuất bằng chứng (rationale extraction) và sinh bình luận tự động dựa trên mô hình **CRAM-ABSA** (*Contrastive Rationale-Aligned Multi-Task Architecture with Embedding-Based Retrieval* - **EBR**).
+
+- **Repository:** https://github.com/trietnguyen2611/CRAM-ABSA-EBR-Hotel-Reviews
 
 ---
 

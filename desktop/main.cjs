@@ -129,7 +129,7 @@ function createMainWindow() {
         height: 920,
         minWidth: 900,
         minHeight: 640,
-        title: 'Starting Hotel Aspect AI',
+        title: 'Starting CRAM-ABSA Hotel Reviews',
         backgroundColor: '#f8f9fa',
         show: false,
         webPreferences: {
@@ -160,7 +160,7 @@ function createMainWindow() {
             <head>
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
-                <title>Starting Hotel Aspect AI</title>
+                <title>Starting CRAM-ABSA Hotel Reviews</title>
                 <style>
                     body {
                         align-items: center;
@@ -188,7 +188,7 @@ function createMainWindow() {
             </head>
             <body>
                 <main>
-                    <h1>Hotel Aspect AI</h1>
+                    <h1>CRAM-ABSA Hotel Reviews</h1>
                     <div class="spinner" aria-hidden="true"></div>
                     <p>Starting the local AI service. This may take a few minutes.</p>
                 </main>
@@ -205,19 +205,19 @@ app.whenReady().then(async () => {
             if (stopping || !mainWindow) return;
             dialog.showMessageBox(mainWindow, {
                 type: 'error',
-                title: 'Hotel Aspect AI backend stopped',
+                title: 'CRAM-ABSA Hotel Reviews backend stopped',
                 message: 'The local Python backend exited unexpectedly.',
                 detail: `Exit code: ${code ?? 'unknown'}\nSignal: ${signal ?? 'none'}`
             }).finally(() => app.quit());
         });
         if (!mainWindow) createMainWindow();
-        mainWindow.setTitle('Hotel Aspect AI');
+        mainWindow.setTitle('CRAM-ABSA Hotel Reviews');
         mainWindow.loadURL(desktopUrl);
     } catch (error) {
         if (stopping) return;
         await dialog.showMessageBox({
             type: 'error',
-            title: 'Hotel Aspect AI could not start',
+            title: 'CRAM-ABSA Hotel Reviews could not start',
             message: 'The local Python backend could not be started.',
             detail: `${error.message}\n\nInstall the project Python requirements or set HOTEL_QA_PYTHON to a valid Python executable.`
         });
@@ -229,7 +229,7 @@ app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
         createMainWindow();
         if (desktopUrl) {
-            mainWindow.setTitle('Hotel Aspect AI');
+            mainWindow.setTitle('CRAM-ABSA Hotel Reviews');
             mainWindow.loadURL(desktopUrl);
         }
     }
