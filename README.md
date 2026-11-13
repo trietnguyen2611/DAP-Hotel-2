@@ -1,83 +1,83 @@
 # CRAM-ABSA: Multi-Task Rationale Alignment for Aspect-Based Hotel Review Assessment
 
-Hệ thống nghiên cứu và ứng dụng đánh giá khách sạn đa khía cạnh (**Aspect-Based Sentiment Analysis - ABSA**), trích xuất câu bằng chứng (*rationale extraction*) và kiểm soát hiện tượng rò rỉ thông tin chéo (*cross-aspect leakage*) dựa trên kiến trúc **CRAM-ABSA** (*Contrastive Rationale-Aligned Multi-Task Architecture with Embedding-Based Retrieval - EBR*).
+Research and application system for multi-aspect hotel review evaluation (**Aspect-Based Sentiment Analysis - ABSA**), rationale sentence extraction, and cross-aspect leakage control based on the **CRAM-ABSA** architecture (*Contrastive Rationale-Aligned Multi-Task Architecture with Embedding-Based Retrieval - EBR*).
 
-- **Mã nguồn Repository:** [https://github.com/trietnguyen2611/CRAM-ABSA-EBR-Hotel-Reviews](https://github.com/trietnguyen2611/CRAM-ABSA-EBR-Hotel-Reviews)
-- **Bài báo Khoa học:** Chuẩn mẫu Springer Nature (`docs/main_paper/sn-article.tex` -> `sn-article.pdf`)
+- **GitHub Repository:** [https://github.com/trietnguyen2611/CRAM-ABSA-EBR-Hotel-Reviews](https://github.com/trietnguyen2611/CRAM-ABSA-EBR-Hotel-Reviews)
+- **Research Paper:** Springer Nature template (`docs/main_paper/sn-article.tex` -> `sn-article.pdf`)
 
 ---
 
-## 🌟 Tính năng nổi bật
+## 🌟 Key Features
 
-1. **Bộ 6 Khía cạnh chuẩn hóa (Canonical Aspects):**
-   - `Service`: Dịch vụ khách hàng, thái độ phục vụ của nhân viên, lễ tân, buồng phòng.
-   - `Facility`: Cơ sở vật chất, phòng ngủ, phòng tắm, vệ sinh, cách âm, điều hòa.
-   - `Experience`: Trải nghiệm lưu trú tổng thể của du khách.
-   - `Amenity`: Tiện ích đi kèm (bể bơi, buffet/ẩm thực, phòng gym, spa, wifi, bãi đỗ xe).
-   - `Loyalty`: Mức độ trung thành, khả năng quay lại hoặc gợi ý cho người khác.
-   - `Branding`: Giá cả, đẳng cấp thương hiệu, tỷ lệ chất lượng/giá tiền (value for money).
+1. **6 Standardized Aspects:**
+   - `Service`: Customer service, staff attitude, front desk, housekeeping.
+   - `Facility`: Room amenities, bathroom, cleanliness, soundproofing, air conditioning.
+   - `Experience`: Overall guest stay experience.
+   - `Amenity`: Hotel amenities (swimming pool, buffet/dining, gym, spa, Wi-Fi, parking).
+   - `Loyalty`: Customer loyalty, likelihood to return or recommend to others.
+   - `Branding`: Pricing, brand reputation, value for money.
 
-2. **Dual-Stage Pipeline tiên tiến:**
-   - **Giai đoạn 1 (Linguistic & Dense Retrieval):** Kết hợp phân tích ngữ pháp, xử lý từ phủ định (NLTK) và truy xuất đặc trưng ngữ nghĩa bằng Embedding-Based Retrieval (EBR) để trích xuất bằng chứng (rationale) theo từng khía cạnh.
-   - **Giai đoạn 2 (Multi-Task BERT Backbone):** Tích hợp 20 đặc trưng dạng bảng (tabular features) qua cơ chế Residual Gating, sử dụng hàm phạt ma trận trực giao Gram (Orthogonal Gram Penalty) để loại bỏ rò rỉ ngữ nghĩa chéo (Cross-Aspect Leakage giảm xuống **0.24%**) và hồi quy thứ bậc có điều kiện (CORN - Conditional Ordinal Regression) giữ đúng tính đơn điệu của bậc thang sao đánh giá.
+2. **Advanced Dual-Stage Pipeline:**
+   - **Stage 1 (Linguistic & Dense Retrieval):** Combines grammatical analysis, negation handling (NLTK), and semantic retrieval using Embedding-Based Retrieval (EBR) to extract rationale sentences for each aspect.
+   - **Stage 2 (Multi-Task BERT Backbone):** Integrates 20 tabular context features through Residual Gating, uses an Orthogonal Gram Penalty to prevent cross-aspect semantic leakage (leakage drops to **0.24%**), and uses Conditional Ordinal Regression (CORN) to maintain the natural order of star ratings.
 
-3. **Hiệu năng vượt trội trên tập kiểm thử (Test Split 999 reviews từ 9,990 reviews TripAdvisor):**
-   - **Test Loss:** Đạt `0.2552` (giảm hơn 50% so với các baseline `0.5143 - 0.6032`).
-   - **6-Aspect Macro-F1:** Đạt `72.55%` (+20.00% so với BERT-Base, +20.43% so với WSD-BiLSTM-GCN).
-   - **Macro-MAE:** Đạt `0.3520`.
-   - **Rationale F1:** Đạt `70.84%` (+20.18% đến +61.07% so với các mô hình tham chiếu).
+3. **High Performance on Test Set (999 reviews from 9,990 TripAdvisor reviews):**
+   - **Test Loss:** `0.2552` (reduced by over 50% compared to baselines `0.5143 - 0.6032`).
+   - **6-Aspect Macro-F1:** `72.55%` (+20.00% over BERT-Base, +20.43% over WSD-BiLSTM-GCN).
+   - **Macro-MAE:** `0.3520`.
+   - **Rationale F1:** `70.84%` (+20.18% to +61.07% over baseline models).
    - **Acc@0:** `92.39%`.
 
 ---
 
-## 📁 Cấu trúc thư mục
+## 📁 Project Structure
 
 ```text
 ├── data/
-│   ├── dataset/         # Dữ liệu TripAdvisor gốc (TripAdvisor_EN.json - 44MB)
-│   ├── df/              # Dữ liệu đã xử lý: hotel_reviews.parquet (42 cột, 9,990 mẫu) & chatbot.db (SQLite)
-│   └── chart_img/       # 15+ biểu đồ phân tích EDA và biểu đồ kết quả đối sánh benchmark
+│   ├── dataset/         # Original TripAdvisor dataset (TripAdvisor_EN.json - 44MB)
+│   ├── df/              # Processed data: hotel_reviews.parquet (42 columns, 9,990 samples) & chatbot.db (SQLite)
+│   └── chart_img/       # 15+ EDA analysis charts and benchmark comparison figures
 ├── train/
-│   ├── train_model/     # Huấn luyện mô hình cơ sở v1 (trainv1.ipynb)
-│   └── train_method/    # Huấn luyện các cơ chế mở rộng / ablation methods (trainmethod.ipynb)
+│   ├── train_model/     # Base model training notebook (trainv1.ipynb)
+│   └── train_method/    # Ablation studies and method variants training (trainmethod.ipynb)
 ├── model/
-│   ├── modelv1/         # Checkpoint modelv1.pt, ebr_exemplar_bank.pkl & training_history_v1.json
-│   └── method/          # Checkpoint so sánh các phương pháp (modelmethod1.pt, modelmethod9.pt,...)
+│   ├── modelv1/         # Checkpoints: modelv1.pt, ebr_exemplar_bank.pkl & training_history_v1.json
+│   └── method/          # Method comparison checkpoints (modelmethod1.pt, modelmethod9.pt,...)
 ├── benchmark/
-│   └── benchmark.py     # Web GUI đối sánh hiệu năng, kiểm thử đơn lẻ và đo lường trực quan
-├── desktop/             # Ứng dụng Desktop thương mại (Electron + Python Backend + Vanilla CSS/JS)
+│   └── benchmark.py     # Web GUI for performance comparison, single-review testing, and visualization
+├── desktop/             # Commercial Desktop app (Electron + Python Backend + Vanilla CSS/JS)
 ├── docs/
-│   ├── main_paper/      # Mã nguồn bài báo LaTeX Springer Nature (sn-article.tex, build.sh, .bib)
-│   ├── src_paper/       # 30 bài báo PDF nghiên cứu nền tảng (1.pdf -> 30.pdf)
-│   └── Springer_Nature_LaTeX_Template/ # Bộ template mẫu gốc từ Springer Nature
-├── Project.ipynb        # Pipeline tiền xử lý dữ liệu, trích xuất đặc trưng & vẽ biểu đồ EDA
-└── requirements.txt     # Danh sách thư viện Python phụ thuộc
+│   ├── main_paper/      # Springer Nature LaTeX paper source (sn-article.tex, build.sh, .bib)
+│   ├── src_paper/       # 30 foundational research reference papers (1.pdf -> 30.pdf)
+│   └── Springer_Nature_LaTeX_Template/ # Official Springer Nature template files
+├── Project.ipynb        # Data preprocessing pipeline, feature extraction, and EDA charts
+└── requirements.txt     # Required Python packages
 ```
 
 ---
 
-## ⚙️ Cài đặt môi trường
+## ⚙️ Environment Setup
 
-### 1. Cài đặt Python Virtual Environment
-Yêu cầu Python **3.10 – 3.12**:
+### 1. Python Virtual Environment Setup
+Python **3.10 – 3.12** is required:
 
 ```bash
-# Tạo môi trường ảo
+# Create a virtual environment
 python3 -m venv .venv
 
-# Kích hoạt môi trường ảo:
-# Trên macOS / Linux:
+# Activate the virtual environment:
+# On macOS / Linux:
 source .venv/bin/activate
-# Trên Windows:
+# On Windows:
 # .venv\Scripts\activate
 
-# Nâng cấp pip và cài đặt thư viện
+# Upgrade pip and install dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 2. Cài đặt môi trường cho Desktop App
-Yêu cầu Node.js **20+** (nếu muốn chạy hoặc đóng gói ứng dụng Desktop):
+### 2. Desktop App Environment Setup
+Node.js **20+** is required (if you want to run or package the Desktop app):
 
 ```bash
 npm --prefix desktop install
@@ -85,64 +85,64 @@ npm --prefix desktop install
 
 ---
 
-## 🚀 Hướng dẫn thực thi
+## 🚀 Execution Guide
 
-### 1. Xử lý dữ liệu & Phân tích Khám phá (EDA)
-Mở file [Project.ipynb](Project.ipynb) trong VSCode / Jupyter Lab để chạy luồng tiền xử lý:
-- Tải và phân tích dữ liệu `data/dataset/TripAdvisor_EN.json`.
-- Dual-stream cleaning: Kết hợp lemmatization ngôn ngữ học và bảo toàn cấu trúc token của BERT.
-- Trích xuất 20 biến đặc trưng ngữ cảnh và nhãn rating theo 6 khía cạnh.
-- Xuất dữ liệu sạch ra `data/df/hotel_reviews.parquet` (9,990 bản ghi) và lưu vào cơ sở dữ liệu `data/df/chatbot.db`.
-- Tự động kết xuất toàn bộ biểu đồ vào thư mục `data/chart_img/`.
+### 1. Data Processing & Exploratory Data Analysis (EDA)
+Open [Project.ipynb](Project.ipynb) in VSCode or Jupyter Lab to run the preprocessing pipeline:
+- Load and inspect the dataset `data/dataset/TripAdvisor_EN.json`.
+- Dual-stream text cleaning: combines linguistic lemmatization with BERT token structure preservation.
+- Extract 20 contextual features and 6-aspect rating labels.
+- Export cleaned data to `data/df/hotel_reviews.parquet` (9,990 rows) and save to database `data/df/chatbot.db`.
+- Automatically save all generated charts to `data/chart_img/`.
 
-### 2. Huấn luyện Mô hình
-Các Jupyter Notebook trong thư mục `train/` được thiết kế có thể chạy cục bộ (GPU/MPS/CPU) hoặc trên Kaggle/Google Colab:
-- **[train/train_model/trainv1.ipynb](train/train_model/trainv1.ipynb)**: Huấn luyện kiến trúc CRAM-ABSA kết hợp BERT Backbone với 6 khía cạnh chuẩn hóa (`Service`, `Facility`, `Experience`, `Amenity`, `Loyalty`, `Branding`), trích xuất Rationale và EBR.
-- **[train/train_method/trainmethod.ipynb](train/train_method/trainmethod.ipynb)**: Huấn luyện các phương pháp đối chứng (Ablation study, Contrastive Loss, các biến thể trọng số).
+### 2. Model Training
+The Jupyter Notebooks in the `train/` directory can run locally (GPU / Apple Silicon MPS / CPU) or on Kaggle / Google Colab:
+- **[train/train_model/trainv1.ipynb](train/train_model/trainv1.ipynb)**: Train the core CRAM-ABSA architecture with BERT Backbone across 6 standardized aspects (`Service`, `Facility`, `Experience`, `Amenity`, `Loyalty`, `Branding`), Rationale Extraction, and EBR.
+- **[train/train_method/trainmethod.ipynb](train/train_method/trainmethod.ipynb)**: Train baseline comparison models and ablation variants (Contrastive Loss, loss weighting schemes).
 
-### 3. Chạy Benchmark Web GUI
-Hệ thống cung cấp một bảng điều khiển Web Dashboard trực quan để đối sánh các mô hình:
+### 3. Run Benchmark Web GUI
+The project includes an interactive Web Dashboard to compare models and test reviews:
 
 ```bash
 python benchmark/benchmark.py
 ```
-- Server mở tại `http://127.0.0.1:8765`.
-- Hỗ trợ nhập đánh giá tùy ý để kiểm tra kết quả phân loại 6 khía cạnh theo thời gian thực cùng đoạn trích chứng minh (rationale).
-- Đánh giá toàn bộ tập test (999 review), hiển thị ma trận nhầm lẫn, biểu đồ phân phối lỗi và các chỉ số Macro-F1, Macro-MAE, Acc@0, Rationale F1.
+- Open `http://127.0.0.1:8765` in your browser.
+- Enter any custom review text to get real-time sentiment predictions across 6 aspects and extracted rationale evidence.
+- Evaluate the entire test set (999 reviews), view confusion matrices, error distribution charts, and key metrics (Macro-F1, Macro-MAE, Acc@0, Rationale F1).
 
-### 4. Khởi chạy Ứng dụng Desktop
-Ứng dụng hoàn chỉnh tích hợp giao diện hiện đại kết nối trực tiếp với backend AI:
+### 4. Run Desktop Application
+A complete cross-platform desktop app with a modern UI connected to the AI backend:
 
 ```bash
-# Khởi chạy ứng dụng trong chế độ Development:
+# Run the application in development mode:
 npm --prefix desktop run desktop
 
-# Đóng gói cài đặt ứng dụng:
-npm --prefix desktop run dist:mac  # Xuất file DMG / ZIP (macOS)
-npm --prefix desktop run dist:win  # Xuất file EXE / NSIS installer (Windows)
+# Package the application:
+npm --prefix desktop run dist:mac  # Build DMG / ZIP (macOS)
+npm --prefix desktop run dist:win  # Build EXE / NSIS installer (Windows)
 ```
 
 ---
 
-## 📝 Biên dịch Bài báo Khoa học (Springer Nature)
+## 📝 Compiling Research Paper (Springer Nature)
 
-Toàn bộ tài liệu học thuật được soạn thảo theo khuôn mẫu chính thức của **Springer Nature** tại `docs/main_paper/`.
+All academic paper files follow the official **Springer Nature** template in `docs/main_paper/`.
 
-### 1. Biên dịch ra PDF
-Thư mục tích hợp script tự động `build.sh` (xử lý 3-pass `pdflatex` + `bibtex`):
+### 1. Compile to PDF
+An automated compilation script `build.sh` is included (runs 3-pass `pdflatex` + `bibtex`):
 
 ```bash
-# Biên dịch tài liệu hoàn chỉnh:
+# Build the complete PDF document:
 bash docs/main_paper/build.sh
 
-# Hoặc biên dịch file nguồn chỉ định:
+# Or compile a specific source file:
 bash docs/main_paper/build.sh sn-article.tex
 
-# Dọn dẹp các tệp log / tạm (.aux, .bbl, .blg, .out, .toc,...):
+# Clean up log and temporary files (.aux, .bbl, .blg, .out, .toc,...):
 bash docs/main_paper/build.sh --clean
 ```
-File PDF hoàn thiện: `docs/main_paper/sn-article.pdf`.
+Output PDF file: `docs/main_paper/sn-article.pdf`.
 
-### 2. Quản lý Tài liệu tham khảo
-- Toàn bộ **30 bài báo tham chiếu** chuẩn hóa quốc tế được lưu trữ tương ứng trong `docs/src_paper/` (`1.pdf` đến `30.pdf`).
-- Thông tin trích dẫn chi tiết nằm tại `docs/main_paper/sn-bibliography.bib` với các key trích dẫn được đánh số tương ứng (`ref01_...` tới `ref30_...`), đảm bảo thứ tự trích dẫn xuất hiện đồng bộ trong bài báo.
+### 2. Reference Management
+- All **30 reference papers** are stored in `docs/src_paper/` (`1.pdf` to `30.pdf`).
+- Citation details are in `docs/main_paper/sn-bibliography.bib` with indexed keys (`ref01_...` to `ref30_...`), matching the citation order in the paper.
