@@ -1,4 +1,5 @@
-\documentclass[runningheads]{llncs}
+\documentclass{llncs}
+\pagestyle{plain}
 
 %========================================================
 % Packages
@@ -18,6 +19,7 @@
 \newunicodechar{ℒ}{\ensuremath{\mathcal{L}}}
 \newunicodechar{★}{\ensuremath{\star}}
 \makeatletter
+\renewcommand{\email}[1]{\normalfont\nolinkurl{#1}}
 \def\doiurl#1{\href{https://doi.org/\detokenize{#1}}{\nolinkurl{doi:\detokenize{#1}}}}
 \let\origthebibliography\thebibliography
 \renewcommand{\thebibliography}[1]{%
@@ -34,15 +36,18 @@
 \title{CRAM-ABSA: Multi-Task Rationale Alignment for Aspect-Based Hotel Review Assessment}
 \titlerunning{CRAM-ABSA for Aspect-Based Hotel Review Assessment}
 
-\author{Nguyen Pham Minh Triet\inst{1}\orcidID{0009-0005-0210-9014} \and
-Nguyen Hoang Duy Tien\inst{1} \and
-Nguyen Bui Anh Duy\inst{1} \and
-Bui Danh Huong Huong\inst{1}}
+\author{Nguyen Pham Minh Triet\inst{1} \and
+Nguyen Hoang Duy Tien\inst{2} \and
+Nguyen Bui Anh Duy\inst{3} \and
+Bui Danh Huong Huong\inst{4}}
 
 \authorrunning{N. P. M. Triet et al.}
 
 \institute{FPT University, Ho Chi Minh City, Vietnam\\
-\email{\{trietnpmse180016,tiennhdse180005,duynbse180003,huongbdhse180020\}@fpt.edu.vn}}
+\textsuperscript{1}\,\email{trietnpmse180016@fpt.edu.vn},
+\textsuperscript{2}\,\email{tiennhdse180005@fpt.edu.vn},\\
+\textsuperscript{3}\,\email{duynbse180003@fpt.edu.vn},
+\textsuperscript{4}\,\email{huongbdhse180020@fpt.edu.vn}}
 
 \begin{document}
 
