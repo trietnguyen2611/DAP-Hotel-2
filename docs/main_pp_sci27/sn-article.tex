@@ -1,0 +1,323 @@
+% Springer Lecture Notes in Networks and Systems (LNNS)
+% 9th International Conference on Smart Computing and Informatics (SCI-2027)
+\documentclass{llncs}
+
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{xcolor}
+\usepackage{textcomp}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{placeins}
+\usepackage{url}
+\usepackage[colorlinks=true,allcolors=blue]{hyperref}
+\renewcommand\UrlFont{\color{blue}\rmfamily}
+\let\botrule\bottomrule
+\raggedbottom
+
+\begin{document}
+
+\title{CRAM-ABSA: Multi-Task Rationale Alignment for Aspect-Based Hotel Review Assessment}
+
+\author{Triet Minh Pham Nguyen\inst{1}\fnmsep\thanks{Corresponding authors: \email{nguyenphamminhtriet2611@gmail.com}, \email{thulvm@fpt.edu.vn}, \email{bd.huong@hutech.edu.vn}, \email{ltm.hanh80@hutech.edu.vn}} \and
+Tien Hoang Duy Nguyen\inst{1} \and
+Duy Bui Anh Nguyen\inst{1} \and
+Thu Le\inst{1,\star} \and
+Huong Bui\inst{2,\star} \and
+Hanh Thi My Le\inst{2,\star}}
+
+\institute{FPT University, Ho Chi Minh City, Vietnam\\
+\email{nguyenphamminhtriet2611@gmail.com}, \email{duytien2kar6@gmail.com},\\
+\email{duybui0652@gmail.com}, \email{thulvm@fpt.edu.vn}
+\and
+HUTECH University, Ho Chi Minh City, Vietnam\\
+\email{bd.huong@hutech.edu.vn}, \email{ltm.hanh80@hutech.edu.vn}}
+
+\maketitle
+
+\begin{abstract}
+Online hotel reviews help travelers choose rooms and help managers improve their services. However, existing aspect-based sentiment analysis (ABSA) systems still face three main problems: sentiment from one aspect often leaks into another, models ignore the natural order of rating levels, and predictions lack clear text evidence. We propose \textbf{CRAM-ABSA}, a two-stage framework that combines text filtering and retrieval with multi-task deep learning. In Stage~1, negation-aware NLTK rules and dense Embedding-Based Retrieval (EBR) select the most relevant sentences for each aspect. In Stage~2, a BERT model combines 20 engineered tabular features using a learnable gate, reduces aspect overlap with an orthogonal Gram-matrix penalty, and keeps rating order consistent using conditional ordinal regression (CORN). Tested on 9,990 six-aspect hotel reviews against three baseline models, CRAM-ABSA achieves strong Macro-F1 gains, very low cross-aspect leakage, fewer large rating errors, and clear text evidence.
+\keywords{Aspect-Based Sentiment Analysis, Hotel Reviews, Multi-Task Learning, Rationale Alignment, Conditional Ordinal Regression, Embedding-Based Retrieval}
+\end{abstract}
+
+% Exact 1-to-30 reference ordering to match docs/src_paper/ (1.pdf to 30.pdf)
+\nocite{ref01_bimaputra2023,ref02_bruni2025,ref03_nakamura2021,ref04_namee2023,ref05_nawawi2024,ref06_yu2024,ref07_apriliani2020,ref08_ounacer2023,ref09_nadeem2025,ref10_nguyen2023,ref11_sutherland2020,ref12_nam2021,ref13_zhang2022,ref14_jeong2024,ref15_pang2025,ref16_shin2024,ref17_perdomo2026,ref18_brauwers2022,ref19_tahir2024,ref20_vo2022,ref21_llorens2023,ref22_aransyah2026,ref23_lewis2020,ref24_reimers2019,ref25_le2026,ref26_piriyakul2024,ref27_alghuribi2025,ref28_xia2026,ref29_jayanto2022,ref30_tran2026}
+
+%========================================================
+% 1. INTRODUCTION
+%========================================================
+\section{Introduction}
+\label{sec:introduction}
+
+\subsection{Background and Motivation}
+\label{subsec:background}
+Online reviews guide travelers' booking choices \cite{ref20_vo2022} and help hotel managers spot service issues \cite{ref21_llorens2023}, monitor quality, and build loyalty \cite{ref19_tahir2024,ref26_piriyakul2024}. Since one review often mixes opinions across different aspects (e.g., praising staff while criticizing WiFi), document-level scores are insufficient, motivating Aspect-Based Sentiment Analysis (ABSA) via Transformers \cite{ref01_bimaputra2023} and hybrid models \cite{ref04_namee2023}.
+
+\subsection{Challenges and Knowledge Gaps}
+\label{subsec:problem}
+Existing hospitality ABSA systems face three main problems: (1) keyword and rule-based pipelines \cite{ref04_namee2023} often fail on negation (e.g., \textit{``not bad''}); (2) standard BERT heads \cite{ref01_bimaputra2023} allow negative sentiment from one aspect to leak into nearby aspects, while standard classification loss---even in graph models \cite{ref09_nadeem2025}---ignores the natural rating order (Negative $<$ Neutral $<$ Positive); and (3) existing baselines \cite{ref01_bimaputra2023,ref04_namee2023,ref09_nadeem2025} predict labels without extracting clear text evidence for managers.
+
+\subsection{Research Questions}
+\label{subsec:research_questions}
+To compare CRAM-ABSA against three strong published baselines---BERT-Base \cite{ref01_bimaputra2023}, BM25-CNN \cite{ref04_namee2023}, and WSD-BiLSTM-GCN \cite{ref09_nadeem2025}---this study answers three research questions:
+\begin{itemize}
+    \item \textbf{RQ1 (Multi-Aspect Sentiment Classification):} How accurately does CRAM-ABSA classify sentiment across all six hotel aspects on an imbalanced dataset?
+    \item \textbf{RQ2 (Leakage Control and Ordinal Consistency):} Can orthogonal masking and conditional ordinal regression reduce cross-aspect leakage and large rating errors?
+    \item \textbf{RQ3 (Evidence Extraction):} How well do negation-aware filtering and embedding retrieval extract short, accurate text evidence for each aspect?
+\end{itemize}
+
+\subsection{Key Contributions}
+\label{subsec:key_contributions}
+We present \textbf{CRAM-ABSA} (\textit{Contrastive Rationale-Aligned Multi-Task Architecture with Embedding-Based Retrieval}) with five contributions:
+\begin{enumerate}[label=(\roman*)]
+    \item \textbf{Two-Stage Pipeline:} Combines Stage~1 negation-aware NLTK filtering and Embedding-Based Retrieval (EBR) with Stage~2 multi-task BERT to predict six aspects (\textit{Service, Facility, Experience, Amenity, Loyalty, Branding}) across four states (\textit{Not Mentioned, Negative, Neutral, Positive}).
+    \item \textbf{Residual Feature Gating:} A 2-layer MLP with a learnable scalar gate initialized at $\alpha = 0.28$ injects 20 tabular features into BERT hidden vectors without distorting language representations.
+    \item \textbf{Orthogonal Rationale Masking:} A Gram-matrix orthogonality loss separates co-occurring aspects, cutting cross-aspect leakage from 54.47\% (BM25-CNN) to 0.24\%.
+    \item \textbf{Conditional Ordinal Regression (CORN):} Ordinal heads penalize errors by rating distance ($0 < 1 < 2$), reducing Macro-MAE to 0.3520.
+    \item \textbf{Strong Benchmark Results:} On an independent 999-review test split, CRAM-ABSA leads across 6 metrics, achieving +20.00\% Macro-F1 (72.55\% vs. 52.55\% for BERT-Base) and +20.18\% to +61.07\% in Rationale F1 (70.84\%).
+\end{enumerate}
+
+%========================================================
+% 2. RELATED WORK
+%========================================================
+\section{Related Work}
+\label{sec:related_work}
+
+\subsection{Aspect-Based Sentiment Analysis in Hospitality}
+\label{subsec:rw_absa_hospitality}
+ABSA covers aspect extraction and sentiment classification \cite{ref18_brauwers2022}. Hotel studies evolved from classical ML and NLP \cite{ref07_apriliani2020,ref08_ounacer2023} to LSTMs \cite{ref29_jayanto2022}, zero-shot learning \cite{ref05_nawawi2024}, Vietnamese hotel review analysis \cite{ref10_nguyen2023,ref25_le2026}, and cross-aspect BiLSTMs with ordinal regression \cite{ref30_tran2026}. However, our baselines remain limited: BERT-Base \cite{ref01_bimaputra2023} isolates aspects, BM25-CNN \cite{ref04_namee2023} uses static features that fail on negation, and WSD-BiLSTM-GCN \cite{ref09_nadeem2025} lacks ordinal distances and rationale extraction.
+
+\subsection{Rationale Alignment and Multi-Task Learning}
+\label{subsec:rw_rationale_multitask}
+Multi-task learning fits hospitality's multi-dimensional satisfaction \cite{ref06_yu2024,ref13_zhang2022,ref27_alghuribi2025}, with recent work using TreeSHAP \cite{ref16_shin2024}, BERT with PLS-SEM \cite{ref28_xia2026}, SERVQUAL \cite{ref17_perdomo2026}, and Outcome-Driven Innovation \cite{ref12_nam2021} to explain service quality. Brand studies \cite{ref19_tahir2024,ref26_piriyakul2024} further show that loyalty depends on multiple touchpoints, motivating multi-task rationale alignment.
+
+\subsection{Retrieval-Augmented Text Mining}
+\label{subsec:rw_retrieval_augmented}
+Retrieval-Augmented Generation (RAG) \cite{ref23_lewis2020}, SBERT dense matching \cite{ref24_reimers2019}, and metadata-grounded retrieval \cite{ref02_bruni2025} reduce unsupported claims by anchoring predictions in real text. Hospitality conversational AI studies \cite{ref14_jeong2024,ref22_aransyah2026} also stress grounding outputs in customer sentences, motivating CRAM-ABSA's Embedding-Based Retrieval (EBR).
+
+%========================================================
+% 3. METHODOLOGY
+%========================================================
+\section{Proposed Methodology (CRAM-ABSA)}
+\label{sec:methodology}
+
+\subsection{Problem Formulation and Pipeline Architecture}
+\label{subsec:problem_pipeline}
+Given a customer review $R = (w_1, w_2, \dots, w_n)$, we follow hotel analytics studies \cite{ref03_nakamura2021,ref11_sutherland2020} to model six aspects: $\mathcal{A} = \{\text{Service}, \allowbreak \text{Facility}, \allowbreak \text{Experience}, \allowbreak \text{Amenity}, \allowbreak \text{Loyalty}, \allowbreak \text{Branding}\}$. For each aspect $a \in \mathcal{A}$, the model predicts one of four states $y_a \in \{\text{Not Mentioned}, \allowbreak \text{Negative}, \allowbreak \text{Neutral}, \allowbreak \text{Positive}\}$ (with ordered sentiment $y_a^{\text{sent}} \in \{0, 1, 2\}$ when mentioned) and extracts a token rationale mask $\mathbf{m}_a \in (0, 1)^n$ highlighting supporting evidence $E_a \subseteq R$.
+
+As shown in Fig.~\ref{fig:research_pipeline}, the workflow runs in five stages: (1) splitting 9,990 hotel reviews into 80\% training, 10\% validation, and 10\% test sets, (2) engineering 20 review-level features, (3) Stage 1 negation-aware NLTK cleaning and embedding-based retrieval (EBR), (4) Stage 2 multi-task BERT modeling with orthogonal rationale masking and CORN ordinal regression, and (5) benchmarking across six evaluation metrics.
+
+\begin{figure}[ht!]
+\centering
+\includegraphics[width=0.92\textwidth]{chart_img/411_research_pipeline.png}
+\caption{Overall research pipeline of the proposed study, showing the end-to-end workflow from data extraction and 20-feature engineering to dual-stage CRAM-ABSA modeling and six-metric benchmarking.}
+\label{fig:research_pipeline}
+\end{figure}
+\FloatBarrier
+
+\subsection{Stage 1: Negation-Aware Linguistic Processing and Embedding Retrieval}
+\label{subsec:stage1_nltk_ebr}
+Customer reviews often contain informal phrases and negation words that flip sentiment. Stage 1 prepares clean text signals and retrieves aspect-relevant sentences before neural modeling:
+\begin{itemize}
+\item \textbf{Negation-Aware Linguistic Processing (NLTK):} Each review $R$ is lowercased, contractions (e.g., \textit{``can't''}, \textit{``n't''}) are expanded, and negation/contrast words (\textit{``not''}, \textit{``never''}, \textit{``no''}, \textit{``hardly''}, \textit{``barely''}, \textit{``scarcely''}, \textit{``without''}, \textit{``but''}) are preserved during stopword removal. Polarity is flipped when negation precedes an opinion word (e.g., \textit{``not clean''}).
+\item \textbf{Embedding-Based Retrieval (EBR):} Inspired by RAG \cite{ref23_lewis2020} and dense embeddings \cite{ref24_reimers2019}, we encode domain keywords and training spans with \texttt{bert-\allowbreak base-\allowbreak uncased} into aspect prototypes $\mathbf{p}_a \in \mathbb{R}^{768}$. Relevance between each sentence or token vector $\mathbf{e}_{s_i} \in \mathbb{R}^{768}$ and aspect $a$ is measured by cosine similarity:
+\begin{equation}
+\text{Sim}(s_i, a) = \frac{\mathbf{e}_{s_i} \cdot \mathbf{p}_a}{\|\mathbf{e}_{s_i}\| \|\mathbf{p}_a\|}
+\end{equation}
+Top-scoring spans guide downstream attention toward real aspect evidence.
+\end{itemize}
+\FloatBarrier
+
+\subsection{Stage 2: Multi-Task CRAM-ABSA Architecture}
+\label{subsec:stage2_cram_absa}
+Stage 2 combines a shared BERT encoder, residual gating for 20 tabular features, orthogonal rationale masking, and conditional ordinal regression heads (Fig.~\ref{fig:architecture}).
+
+\begin{figure}[ht!]
+\centering
+\includegraphics[width=0.76\textwidth]{chart_img/412_model_architecture.png}
+\caption{Architecture of the proposed CRAM-ABSA model, combining Stage 1 negation-aware NLTK processing and EBR with Stage 2 BERT encoding, 20-feature residual gating, orthogonal rationale masking, and CORN ordinal regression.}
+\label{fig:architecture}
+\end{figure}
+
+As shown in Fig.~\ref{fig:architecture}, Stage 2 has four connected parts:
+\begin{itemize}
+\item \textbf{Shared Contextual Backbone:} A pretrained \texttt{bert-base-uncased} encoder reads $\text{[CLS]} \, R \, \text{[SEP]}$ to produce token states $\mathbf{H} \in \mathbb{R}^{n \times 768}$ and summary vector $\mathbf{h}_{\text{CLS}} \in \mathbb{R}^{768}$.
+\item \textbf{Residual Feature Gating:} Twenty tabular features $\mathbf{f} \in \mathbb{R}^{20}$ (aspect counts, polarity balance, negation density, EBR similarity) pass through a two-layer MLP ($20 \rightarrow 256 \rightarrow 768$, LayerNorm, GELU, Dropout $0.15$) to form $\mathbf{f}_{\text{emb}} \in \mathbb{R}^{768}$, fused via learnable scalar gate $\alpha$ (initialized at $0.28$):
+\begin{equation}
+\mathbf{H}_{\text{fused}} = \mathbf{H} + \alpha \, \mathbf{f}_{\text{emb}}, \quad \mathbf{h}_{\text{fused}} = \mathbf{h}_{\text{CLS}} + \mathbf{f}_{\text{emb}}
+\end{equation}
+\item \textbf{Orthogonal Rationale Masking and Overlap Loss:} To prevent cross-aspect token leakage \cite{ref30_tran2026}, EBR prototypes and 8-head cross-attention over $\mathbf{H}_{\text{fused}}$ predict six rationale masks $\mathbf{m}_a \in (0, 1)^n$ trained with weighted BCE ($\mathcal{L}_{\text{rat}}$, positive weight $2.5$). An overlap loss ($\mathcal{L}_{\text{overlap}}$) combines an off-diagonal Gram-matrix cosine penalty and a token-excess ReLU penalty, cutting leakage to $0.24\%$.
+\item \textbf{Aspect, CORN Ordinal, and Joint Loss Heads:} Each aspect uses a four-class classifier with Cross-Entropy and label smoothing ($0.03$) for $\mathcal{L}_{\text{aspect\_CE}}$. A global CORN head takes $[\mathbf{h}_{\text{fused}}; \bar{\mathbf{z}}] \in \mathbb{R}^{1536}$ ($\bar{\mathbf{z}}$ is the mean of the six aspect embeddings) to predict two ordered thresholds ($y > 0$, $y > 1$) for $\mathcal{L}_{\text{CORN}}$, alongside a GRU commentary head ($\mathcal{L}_{\text{com}}$). The joint loss is:
+\begin{equation}
+\begin{split}
+\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{aspect\_CE}} &+ \beta_{\text{CORN}} \mathcal{L}_{\text{CORN}} + \beta_{\text{rat}} \mathcal{L}_{\text{rat}} \\
+&+ \beta_{\text{overlap}} \mathcal{L}_{\text{overlap}} + \beta_{\text{com}} \mathcal{L}_{\text{com}}
+\end{split}
+\end{equation}
+with $\beta_{\text{CORN}} = 0.20$, $\beta_{\text{rat}} = 0.25$, $\beta_{\text{overlap}} = 0.35$, and $\beta_{\text{com}} = 0.05$.
+\end{itemize}
+\FloatBarrier
+
+%========================================================
+% 4. EXPERIMENTS
+%========================================================
+\section{Experimental Evaluation}
+\label{sec:experimental_evaluation}
+
+\subsection{Dataset and 20-Feature Engineering}
+\label{subsec:dataset_eda_features}
+{\emergencystretch=3em We evaluate CRAM-ABSA on \texttt{TripAdvisor\_EN.json}, containing 9,990 anonymized English hotel reviews collected from TripAdvisor in Vietnam in a prior unpublished project, split 80/10/10 into 7,992 training, 999 validation, and \textbf{999 test} reviews. Each review is labeled across six aspects (\textit{Service}, \textit{Facility}, \textit{Experience}, \textit{Amenity}, \textit{Loyalty}, and \textit{Branding}) with four states (\textit{Not Mentioned, Negative, Neutral, Positive}).\par}
+
+\begin{figure}[ht!]
+\centering
+\begin{minipage}{0.49\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{chart_img/43_aspect_frequency_distribution.png}
+  \caption{Aspect frequency distribution across the 9,990 review corpus.}
+  \label{fig:aspect_freq}
+\end{minipage}\hfill
+\begin{minipage}{0.49\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{chart_img/44_aspect_sentiment_breakdown.png}
+  \caption{Sentiment breakdown across the six evaluated hotel aspects.}
+  \label{fig:sentiment_breakdown}
+\end{minipage}
+\end{figure}
+
+Fig.~\ref{fig:aspect_freq} shows strong aspect imbalance (\textit{Service} and \textit{Facility} are common; \textit{Loyalty} and \textit{Branding} are rare), and Fig.~\ref{fig:sentiment_breakdown} shows that positive sentiment dominates all six aspects. To handle this skew, we build 20 tabular features in four groups: (1)~\textit{Aspect Structure} (Feats 01--03, 14: count, main aspect, share, coverage); (2)~\textit{Sentiment Polarity} (Feats 04, 08--13, 17: net sentiment, conflict flag, six aspect scores, polarity strength); (3)~\textit{Text Evidence} (Feats 05--07, 15--16: evidence density, mean length, overlap flag, hedging, consensus); and (4)~\textit{Linguistic and EBR} (Feats 18--20: clean token ratio, negation density, Top-3 EBR centroid similarities).
+\FloatBarrier
+
+\subsection{Baseline Models and Implementation Details}
+\label{subsec:baselines_implementation}
+We compare CRAM-ABSA against three published baselines on the exact same 999-review test split:
+\begin{enumerate}
+    \item \textbf{BERT-Base (Bimaputra and Sutoyo, 2023 \cite{ref01_bimaputra2023}):} Fine-tuned BERT-base with one classifier head per aspect.
+    \item \textbf{BM25-CNN (Namee et al., 2023 \cite{ref04_namee2023}):} Hybrid BM25, TF-IGM, SVM, and Multi-Region CNN.
+    \item \textbf{WSD-BiLSTM-GCN (Nadeem et al., 2025 \cite{ref09_nadeem2025}):} Word Sense Disambiguation and Graph Convolutional Networks over syntax trees.
+\end{enumerate}
+With $\text{SEED}=42$, CRAM-ABSA trains for 8 epochs (best validation checkpoint) using AdamW (lr $3\times 10^{-5}$ for BERT, $10^{-4}$ for heads, 10\% linear warmup, cosine decay, per-GPU batch 16 with 2 accumulation steps). Baselines follow fixed schedules: BERT-Base (3 epochs, AdamW, lr $2\times 10^{-5}$), BM25-CNN (8 epochs, Adam, lr $10^{-3}$, batch 64), and WSD-BiLSTM-GCN (6 epochs, AdamW, lr $3\times 10^{-5}/10^{-3}$).
+
+\subsection{Evaluation Metrics}
+\label{subsec:evaluation_metrics}
+We evaluate all models on six metrics: (1)~\textbf{Acc@0 (\%) $\uparrow$:} exact-match sentiment accuracy (zero rating error); (2)~\textbf{6-Aspect Macro-F1 (\%) $\uparrow$:} average Macro-F1 across all six aspects and four states; (3)~\textbf{Macro-MAE $\downarrow$:} ordinal distance error (penalizing opposite-polarity errors by 2); (4)~\textbf{Rationale F1 (\%) $\uparrow$:} token-level overlap F1 with human evidence spans; (5)~\textbf{Leakage (\%) $\downarrow$:} share of tokens assigned to two or more aspects; and (6)~\textbf{Test Loss $\downarrow$:} total multi-task test loss.
+
+\FloatBarrier
+\subsection{Overall Quantitative Benchmark Results}
+\label{subsec:overall_results}
+Table~\ref{tab:overall_benchmark} and Fig.~\ref{fig:benchmark_comparison} show the results of CRAM-ABSA and the three baseline models on the 999-review test set.
+
+\begin{table}[ht!]
+\caption{Benchmark evaluation results on the independent test split (999 samples). Arrows indicate whether higher ($\uparrow$) or lower ($\downarrow$) values are preferred. Best results across each column are shown in \textbf{bold}.}\label{tab:overall_benchmark}
+\footnotesize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lcccccr@{}}
+\toprule
+\textbf{Model} & \textbf{Test} & \textbf{Acc@0} & \textbf{Macro-F1} & \textbf{Macro-} & \textbf{Rat-F1} & \textbf{Leak} \\
+\textbf{Architecture} & \textbf{Loss} $\downarrow$ & \textbf{(\%)} $\uparrow$ & \textbf{(\%)} $\uparrow$ & \textbf{MAE} $\downarrow$ & \textbf{(\%)} $\uparrow$ & \textbf{(\%)} $\downarrow$ \\
+\midrule
+\textbf{CRAM-ABSA (Ours)} & \textbf{0.2552} & 92.39 & \textbf{72.55} & \textbf{0.3520} & \textbf{70.84} & 0.24 \\
+BERT-Base \cite{ref01_bimaputra2023} & 0.5143 & 92.29 & 52.55 & 0.4823 & 50.66 & \textbf{0.02} \\
+BM25-CNN \cite{ref04_namee2023} & 0.6032 & 91.69 & 44.22 & 0.6743 & 32.65 & 54.47 \\
+WSD-BiLSTM-GCN \cite{ref09_nadeem2025} & 0.5227 & \textbf{92.59} & 52.12 & 0.4756 & 9.77 & 0.22 \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\begin{figure}[ht!]
+\centering
+\includegraphics[width=0.72\textwidth]{chart_img/413_benchmark_comparison.png}
+\caption{Quality metric comparison on the 999-sample independent test split across the four evaluated models, covering Acc@0, 6-Aspect Macro-F1, and Rationale F1 (higher $\uparrow$ is better).}
+\label{fig:benchmark_comparison}
+\end{figure}
+
+CRAM-ABSA leads in 4 of 6 metrics:
+(1)~\textit{Test Loss (0.2552):} >50\% lower than baselines (0.5143--0.6032);
+(2)~\textit{6-Aspect Macro-F1 (72.55\%):} +20.00 points over BERT-Base (52.55\%), +20.43 over WSD-BiLSTM-GCN (52.12\%), and +28.33 over BM25-CNN (44.22\%);
+(3)~\textit{Macro-MAE (0.3520):} below WSD-BiLSTM-GCN (0.4756), BERT-Base (0.4823), and BM25-CNN (0.6743);
+(4)~\textit{Rationale F1 (70.84\%):} ahead of BERT-Base (50.66\%), BM25-CNN (32.65\%), and WSD-BiLSTM-GCN (9.77\%);
+(5)~\textit{Leakage (0.24\%) and Acc@0 (92.39\%):} close to WSD-BiLSTM-GCN (92.59\%) while avoiding BM25-CNN's 54.47\% leakage (BERT-Base is 0.02\%).
+\FloatBarrier
+
+\subsection{Metric Interpretation Across Research Questions (RQ1--RQ3)}
+\label{subsec:rq_interpretation}
+We now explain what these benchmark numbers mean for our three Research Questions:
+\begin{itemize}
+    \item \textbf{RQ1 (Multi-Aspect Sentiment Classification):} Baselines reach high Acc@0 (91.69--92.59\%) mostly by predicting common \textit{Not Mentioned} and positive labels (Fig.~\ref{fig:aspect_freq}, Fig.~\ref{fig:sentiment_breakdown}), but their Macro-F1 drops to 44.22--52.55\% on rare aspects (\textit{Loyalty}, \textit{Branding}) and negative/neutral cases. Combining text embeddings with the 20 tabular features via residual gating lifts CRAM-ABSA's Macro-F1 to 72.55\% at 92.39\% Acc@0.
+    \item \textbf{RQ2 (Leakage Control and Ordinal Consistency):} CORN ordinal regression lowers Macro-MAE to 0.3520 (vs.\ 0.4756--0.6743) by reducing opposite-polarity errors. Meanwhile, Fig.~\ref{fig:span_overlap} shows ground-truth spans rarely overlap (8 cases total). BM25-CNN's keyword rules cause 54.47\% leakage, and BERT-Base's 0.02\% leakage comes from separate heads with lower Rationale F1 (50.66\%). Orthogonal masking keeps CRAM-ABSA's leakage at 0.24\% with 70.84\% Rationale F1.
+    \item \textbf{RQ3 (Evidence Extraction):} Fig.~\ref{fig:rationale_length} shows human evidence spans are short (medians ~39--66 characters). Baselines score lower (9.77--50.66\% Rationale F1) due to missing span alignment or negation errors, whereas Stage~1 negation filtering and EBR help CRAM-ABSA reach 70.84\%.
+\end{itemize}
+
+\begin{figure}[ht!]
+\centering
+\begin{minipage}{0.49\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{chart_img/49_cross_aspect_span_overlap.png}
+  \caption{Counts of overlapping text coordinate spans across hotel aspect pairs.}
+  \label{fig:span_overlap}
+\end{minipage}\hfill
+\begin{minipage}{0.49\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{chart_img/45_rationale_length_by_aspect.png}
+  \caption{Distribution of rationale span lengths (in characters) across the six aspects.}
+  \label{fig:rationale_length}
+\end{minipage}
+\end{figure}
+\FloatBarrier
+
+%========================================================
+% 5. DISCUSSION AND CONCLUSION
+%========================================================
+\section{Discussion and Conclusion}
+\label{sec:discussion_conclusion}
+
+\subsection{Practical and Managerial Implications}
+\label{subsec:discussion_implications}
+Our results offer clear value for hospitality research and hotel management. For research, CRAM-ABSA resolves key trade-offs among aspect coverage, leakage, and ordinal accuracy while making predictions explainable through text evidence \cite{ref16_shin2024}. For management, tracking all six aspects (\textit{Service, Facility, Experience, Amenity, Loyalty, Branding}) gives deeper insight than a single rating: operators can apply penalty-reward analysis \cite{ref13_zhang2022} to spot root causes of complaints and use extracted spans for fast service recovery \cite{ref15_pang2025}.
+
+\subsection{Conclusion, Limitations and Future Work}
+\label{subsec:conclusion_future_work}
+We presented \textbf{CRAM-ABSA}, a multi-task model for six-aspect hotel review assessment and evidence extraction that combines NLTK filtering, dense EBR, orthogonal masking, 20-feature residual gating, and CORN regression to overcome baseline limits \cite{ref01_bimaputra2023,ref04_namee2023,ref09_nadeem2025}. On the 999-sample test split, CRAM-ABSA leads in 4 of 6 metrics: lowest Test Loss (0.2552), highest 6-Aspect Macro-F1 (72.55\%, +20\% gain), lowest Macro-MAE (0.3520), and highest Rationale F1 (70.84\%), with 0.24\% leakage and 92.39\% Acc@0. A limitation is our single-split evaluation; future work will add multi-fold validation, parameter ablation grids, and multilingual transfer across Southeast Asian hotel markets.
+
+%========================================================
+% BACKMATTER & DECLARATIONS
+%========================================================
+\subsubsection*{Acknowledgements}
+Supported by FPT University and HUTECH University, Ho Chi Minh City, Vietnam. We thank the reviewers and editors for their helpful comments.
+
+\section*{Declarations}
+\begingroup\small\def\UrlBreaks{\do\/\do-\do_\do.}\emergencystretch=2em
+\begin{itemize}[topsep=1pt, itemsep=1pt, parsep=0pt]
+\item \textbf{Funding:} None.
+\item \textbf{Competing interests:} The authors declare no competing interests.
+\item \textbf{Ethics approval and consent to participate:} Not applicable (public, anonymized hotel reviews; no human or animal subjects).
+\item \textbf{Consent for publication:} Not applicable.
+\item \textbf{Data availability:} Available in the CRAM-ABSA-EBR-Hotel-Reviews repository (\url{https://github.com/trietnguyen2611/CRAM-ABSA-EBR-Hotel-Reviews}).
+\item \textbf{Code availability:} Available in the CRAM-ABSA-EBR-Hotel-Reviews repository (\url{https://github.com/trietnguyen2611/CRAM-ABSA-EBR-Hotel-Reviews}).
+\item \textbf{Author contribution:}
+\begin{itemize}[leftmargin=1.2em, nolistsep]
+\item \textbf{Triet Minh Pham Nguyen:} Designed the method and drafted the manuscript.
+\item \textbf{Tien Hoang Duy Nguyen:} Performed data cleaning, EDA, and benchmark experiments.
+\item \textbf{Duy Bui Anh Nguyen:} Performed data cleaning, EDA, and benchmark experiments.
+\item \textbf{Thu Le:} Supervised the study, guided methodology, and revised the manuscript.
+\item \textbf{Huong Bui:} Supervised the study, guided methodology, and revised the manuscript.
+\item \textbf{Hanh Thi My Le:} Provided and curated the hotel review dataset, and reviewed the manuscript.
+\end{itemize}
+\noindent All authors read and approved the final manuscript.
+\end{itemize}
+\endgroup
+
+%========================================================
+% REFERENCES
+%========================================================
+\clearpage
+\begingroup
+\let\oldthebibliography\thebibliography
+\renewcommand{\thebibliography}[1]{\oldthebibliography{#1}\setlength{\itemsep}{1.5pt}}
+\bibliographystyle{splncs04}
+\bibliography{sn-bibliography}
+\endgroup
+
+\end{document}

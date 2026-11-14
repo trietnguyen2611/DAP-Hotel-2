@@ -86,7 +86,7 @@ cleanup_aux
 if [[ -f "${JOB_NAME}.pdf" ]]; then
     OUTPUT_PDF="${JOB_NAME}.pdf"
     if [[ "${TEX_FILE}" == "sn-article.tex" ]]; then
-        OUTPUT_PDF="CRAM-ABSA: Multi-Task Rationale Alignment for Aspect-Based Hotel Review Assessment.pdf"
+        OUTPUT_PDF="CRAM-ABSA Multi-Task Rationale Alignment for Aspect-Based Hotel Review Assessment.pdf"
         mv -f "${JOB_NAME}.pdf" "${OUTPUT_PDF}"
     fi
     PDF_SIZE="$(du -h "${OUTPUT_PDF}" | cut -f1 | xargs)"
